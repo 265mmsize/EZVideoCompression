@@ -24,8 +24,8 @@ FFmpeg 5.1 미만이면 지원 범위 밖으로 판정한다.
 - LGPL 빌드를 우선 사용하고 GPL 구성요소의 포함 여부를 확인한다.
 - 출처 URL, 버전, configure 옵션, SHA-256 을 `docs/RELEASE_CHECKLIST.md` 절차에 따라 기록한다.
 - 라이선스 전문과 고지를 `resources/licenses/` 에 넣는다.
-- 이 저장소의 빌드 환경에서는 해당 호스트 접근이 차단되어 있어 바이너리를 내려받지 않았다.
-  실제 번들은 배포 담당자가 위 절차를 거쳐 추가해야 한다.
+- 현재 Windows 번들은 `npm run fetch:ffmpeg` 로 받는다 (PyPI 휠, SHA-256 고정). gyan.dev 와 GitHub 는 이 환경에서 차단되어 있다.
+- 이 파일과 바이너리는 저장소에 커밋하지 않는다.
 
 ## 테스트용 FFmpeg 지정
 

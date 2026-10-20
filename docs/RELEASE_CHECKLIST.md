@@ -9,17 +9,19 @@
 - [ ] `npm run typecheck`, `npm run lint`, `npm run format:check` 가 통과한다.
 - [ ] `npm test` (단위·통합) 가 통과한다. 통합 테스트는 FFmpeg 가 PATH 에 필요하다.
 - [ ] `npm run test:e2e` (Electron, Linux 에서는 xvfb 사용) 가 통과한다.
-- [ ] `npm run pack:win` 으로 NSIS 설치 파일과 포터블 파일을 만든다 (포터블은 Windows 에서 빌드한다).
+- [ ] `npm run pack:win` 으로 NSIS 설치 파일과 포터블 파일을 만든다. Windows 에서 실행해야 한다 (Linux 에서는 wine 이 필요하다).
 
-## 2. FFmpeg 번들 (번들하지 않는다면 이 절은 건너뛰고 README 에 설치 안내를 둔다)
+## 2. FFmpeg 번들 (GPL v3 — 배포 전 필수 확인)
 
-- [ ] 출처와 빌드 구성을 기록했다 (배포처 URL, 버전, configure 옵션, 빌드 날짜, SHA-256).
-- [ ] LGPL 조건을 확인했다. GPL 구성요소(x264, x265 등)가 들어 있으면 GPL 적용 범위가 달라진다.
+현재 번들: `scripts/fetch-ffmpeg-win.mjs` 가 PyPI `ffmpeg-binaries` 1.1.0 휠에서 FFmpeg 6.0 (gyan.dev essentials) 을 가져온다. 휠과 실행 파일의 SHA-256 은 스크립트에 고정되어 있다.
+
+- [x] 출처와 빌드 구성을 기록했다: gyan.dev essentials 6.0, configure 옵션은 `resources/licenses/ffmpeg/BUILD-README.txt`, 원 소스 참조는 FFmpeg 커밋 ea3d24bbe3. 다만 휠은 제3자 재포장이므로 gyan.dev 원본과의 대조는 아직 하지 않았다.
+- [x] 이 빌드는 `--enable-gpl` 이므로 GPL v3 가 적용된다. LGPL 빌드가 아니다. 배포자가 이 조건을 받아들이는지 결정해야 한다.
 - [ ] 동적 링크 여부와 교체 가능성(사용자가 다른 FFmpeg 로 바꿀 수 있는지)을 확인했다.
 - [ ] 라이선스 전문과 고지를 `resources/licenses/` 에 넣었다.
-- [ ] 소스 제공 방법을 정했다 (사용한 소스 아카이브 또는 제공 URL).
+- [ ] 대응 소스 제공 방법을 정했다. FFmpeg 뿐 아니라 빌드에 포함된 GPL 구성요소(libx264, libx265, libvmaf, libvidstab 등)의 소스가 모두 필요하다. 서면 제안(written offer) 또는 소스 아카이브 중 하나를 택해 설치 파일과 함께 제공해야 한다.
 - [ ] 코덱 특허·배포 조건(H.264, H.265)을 배포 대상 지역 기준으로 확인했다.
-- [ ] `resources/binaries/win32-x64/` 에 `ffmpeg.exe`, `ffprobe.exe` 를 넣고 `npm run pack:win` 을 다시 실행했다.
+- [x] `resources/binaries/win32-x64/` 에 `ffmpeg.exe`, `ffprobe.exe` 를 SHA-256 검증 후 배치했다 (`npm run fetch:ffmpeg`).
 
 ## 3. 서명
 

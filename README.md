@@ -5,7 +5,8 @@
 
 > **현재 상태**: 1~5단계 중 모든 항목을 완료하지는 못했습니다. 구현 상태와 미구현 목록은
 > [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) 를 보세요.
-> 배포 빌드에는 FFmpeg 가 포함되지 않으며, 설치 파일은 서명되지 않았습니다.
+> Windows 빌드에는 FFmpeg 6.0 (GPL v3) 이 번들됩니다. 배포자는 GPL 소스 제공 의무를 이행해야 하며,
+> 설치 파일은 서명되지 않습니다. 설치 파일 생성은 Windows 에서 해야 합니다 (Linux 에서는 wine 이 필요합니다).
 
 ## 주요 기능
 
@@ -55,7 +56,8 @@ npm run fixtures       # 테스트 합성 영상만 생성 (tests/fixtures/gener
 ```bash
 npm run build          # out/ 에 main, preload, renderer 빌드
 npm run pack:linux-dir # Linux 패키지 (파이프라인 검증용)
-npm run pack:win       # Windows NSIS 설치 파일과 포터블 (Windows 에서 실행 권장)
+npm run fetch:ffmpeg    # FFmpeg 6.0 Windows 바이너리를 SHA-256 검증 후 resources/binaries/win32-x64 에 배치
+npm run pack:win         # Windows 설치 파일과 포터블 (Windows 에서 실행)
 node scripts/gen-licenses.mjs   # 제3자 라이선스 고지 재생성
 ```
 

@@ -15,18 +15,18 @@
 
 ## 2. 실행 명령과 결과
 
-| 명령                                                | 결과                                                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`                                 | 통과 (main/preload, renderer)                                                                                       |
-| `npm run lint`                                      | 통과 (strict type-checked ESLint)                                                                                   |
-| `npm run format:check`                              | 통과 (Prettier)                                                                                                     |
-| `npm run build`                                     | 통과 (main 120 kB, preload 2 kB, renderer 약 636 kB)                                                                |
-| `npm test` (단위 + 통합)                            | **81/81 통과** (10개 파일, 파일별 합계 약 31초)                                                                     |
-| `npm run test:e2e`                                  | **5/5 통과** (Electron 4개 + 패키지 앱 1개)                                                                         |
-| `npm run pack:linux-dir`                            | 통과 (asar 에 런타임 의존성 포함, 패키지 앱 기동 확인)                                                              |
-| `electron-builder --win nsis portable` (Linux 에서) | NSIS 설치 파일 생성 확인. 포터블은 `wine` 부재로 실패 (Windows 에서 빌드 필요)                                      |
-| `npm audit --omit=dev`                              | 취약점 0건 (운영 의존성 기준)                                                                                       |
-| `npm audit` (개발 도구 포함)                        | 중간 등급 8건. 개발 도구(electron-builder 등)의 전이 의존성이며 배포 파일에는 포함되지 않는다. 업그레이드 검토 필요 |
+| 명령                                             | 결과                                                                                                                                                                                   |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                              | 통과 (main/preload, renderer)                                                                                                                                                          |
+| `npm run lint`                                   | 통과 (strict type-checked ESLint)                                                                                                                                                      |
+| `npm run format:check`                           | 통과 (Prettier)                                                                                                                                                                        |
+| `npm run build`                                  | 통과 (main 120 kB, preload 2 kB, renderer 약 636 kB)                                                                                                                                   |
+| `npm test` (단위 + 통합)                         | **81/81 통과** (10개 파일, 파일별 합계 약 31초)                                                                                                                                        |
+| `npm run test:e2e`                               | **5/5 통과** (Electron 4개 + 패키지 앱 1개)                                                                                                                                            |
+| `npm run pack:linux-dir`                         | 통과 (asar 에 런타임 의존성 포함, 패키지 앱 기동 확인)                                                                                                                                 |
+| `electron-builder --win nsis --x64` (Linux 에서) | **실패**: makensis 실행에 `wine` 이 필요하다. 설치 파일(`.exe`)은 완성되지 않았다. 페이로드(win-unpacked, `.nsis.7z`)는 생성되었고, 번들 FFmpeg 두 파일의 SHA-256 이 고정값과 일치했다 |
+| `npm audit --omit=dev`                           | 취약점 0건 (운영 의존성 기준)                                                                                                                                                          |
+| `npm audit` (개발 도구 포함)                     | 중간 등급 8건. 개발 도구(electron-builder 등)의 전이 의존성이며 배포 파일에는 포함되지 않는다. 업그레이드 검토 필요                                                                    |
 
 ## 3. 단위 테스트 (순수 로직)
 
@@ -90,7 +90,8 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
 - 원본 파일의 SHA-256 이 처리 전후 같음 (성공, 취소, 실패 경로 모두)
 - 취소 후 잔여 FFmpeg 프로세스 0개
 - Electron 창의 주요 흐름과 패키지 앱 기동 (Linux)
-- Windows 설치 파일 생성 (PE32 GUI 인스톨러 확인)
+- 번들 FFmpeg 6.0 실행 파일이 win-unpacked 에 고정 해시와 함께 포함됨
+- 설치 파일(.exe) 완성은 이 환경에서 확인하지 못함 (wine 필요)
 
 확인하지 못함:
 

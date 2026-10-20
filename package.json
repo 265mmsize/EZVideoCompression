@@ -22,8 +22,9 @@
     "test:integration": "vitest run tests/integration",
     "test:e2e": "npm run build && xvfb-run -a playwright test -c playwright.config.ts",
     "pack:dir": "npm run build && electron-builder --dir",
-    "pack:win": "npm run build && electron-builder --win --x64",
-    "pack:linux-dir": "npm run build && electron-builder --linux dir"
+    "pack:win": "npm run fetch:ffmpeg && npm run build && electron-builder --win --x64",
+    "pack:linux-dir": "npm run build && electron-builder --linux dir",
+    "fetch:ffmpeg": "node scripts/fetch-ffmpeg-win.mjs"
   },
   "dependencies": {
     "react": "19.3.1",

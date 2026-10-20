@@ -15,7 +15,8 @@
 
 Electron 은 MIT 라이선스이며, 번들에 포함된 Chromium 과 Node.js 의 고지는 설치 폴더의 LICENSE.electron.txt 와 LICENSES.chromium.html 을 따른다.
 
-## 3. FFmpeg / ffprobe (번들하지 않음)
+## 3. FFmpeg / ffprobe (Windows 번들, GPL v3)
 
-현재 배포 빌드에는 FFmpeg 바이너리가 포함되어 있지 않다. 사용자가 설정에서 지정하거나 PATH 의 FFmpeg 를 사용한다.
-번들 배포로 전환할 때는 resources/binaries/README.md 의 조건(LGPL 빌드, 소스 제공, 빌드 구성 기록)을 충족해야 한다.
+Windows 빌드에는 FFmpeg 6.0 (gyan.dev essentials 빌드, GPL v3) 의 ffmpeg.exe, ffprobe.exe 가 들어 있다.
+출처와 무결성 값은 scripts/fetch-ffmpeg-win.mjs 에 고정되어 있다. 라이선스 전문은 resources/licenses/ffmpeg/COPYING.GPLv3 이다.
+이 빌드는 GPL 구성요소(libx264, libx265 등)를 포함하므로 배포자는 대응 소스 제공 의무를 이행해야 한다 (docs/RELEASE_CHECKLIST.md 2절).

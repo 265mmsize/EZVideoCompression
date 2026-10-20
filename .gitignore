@@ -13,3 +13,5 @@ tests/fixtures/generated/
 # 로컬 바이너리 (환경별로 resources/binaries/README.md 절차에 따라 배치)
 resources/binaries/*/ffmpeg*
 resources/binaries/*/ffprobe*
+# 임시 작업 폴더 (도구 다운로드 중간 산출물)
+scratchpad/
