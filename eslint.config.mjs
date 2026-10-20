@@ -27,6 +27,12 @@ export default tseslint.config(
     rules: { ...reactHooks.configs.recommended.rules },
   },
   {
+    // 유지보수 스크립트는 Node 환경에서 실행된다
+    files: ['scripts/**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
     // 테스트 코드는 픽스처 값을 단언으로 단정한다. 실패 시 즉시 드러나는 편이 낫다.
     files: ['tests/**/*.ts'],
     rules: {

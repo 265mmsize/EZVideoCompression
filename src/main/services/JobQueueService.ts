@@ -101,6 +101,8 @@ export class JobQueueService {
   private running: { jobId: string; controller: AbortController } | null = null;
   private analysisChain: Promise<void> = Promise.resolve();
   private pumping = false;
+  /** 현재 실행 중인 runJob 의 완료 대기용 */
+  private runningPromise: Promise<void> | null = null;
   /** 샘플 추천 실행 중인 작업과 취소 컨트롤러 */
   private readonly sampling = new Map<string, AbortController>();
 
@@ -390,6 +392,15 @@ export class JobQueueService {
         this.transition(row.id, 'cancelling');
       this.running.controller.abort();
     }
+    // 실행 중인 인코딩이 취소 처리까지 끝날 때까지 기다린다 (DB 를 닫기 전에 기록을 마치기 위해)
+    const waitMs = 10_000;
+    const running = this.runningPromise;
+    if (running) {
+      await Promise.race([
+        running.catch(() => undefined),
+        new Promise((r) => setTimeout(r, waitMs)),
+      ]);
+    }
     await this.analysisChain;
   }
 
@@ -444,7 +455,8 @@ export class JobQueueService {
     const next = this.deps.jobs.listByStatus(['queued'])[0];
     if (!next) return;
     this.pumping = true;
-    void this.runJob(next.id).finally(() => {
+    this.runningPromise = this.runJob(next.id);
+    void this.runningPromise.finally(() => {
       this.pumping = false;
       this.running = null;
       this.emitQueueChanged();

@@ -93,6 +93,9 @@ export function registerIpc(deps: IpcDeps): void {
     },
 
     'shell:showInFolder': ({ path }) => {
+      // 앱이 기록한 작업의 입력·출력 경로만 연다 (임의 경로를 탐색기로 여는 것을 막는다)
+      if (!s.jobs.hasPath(path))
+        throw new AppError('INVALID_REQUEST', '작업 기록에 없는 경로입니다');
       if (!fs.existsSync(path)) throw new AppError('INPUT_MISSING', path);
       shell.showItemInFolder(path);
       return { opened: true };

@@ -166,6 +166,14 @@ export class JobRepository {
     return row ? toRow(row) : null;
   }
 
+  /** 입력 또는 출력 경로로 기록된 작업이 있는지 */
+  hasPath(path: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 AS hit FROM jobs WHERE input_path = ? OR output_path = ? LIMIT 1')
+      .get(path, path);
+    return row !== undefined;
+  }
+
   maxQueueOrder(): number {
     const row = this.db.prepare('SELECT COALESCE(MAX(queue_order), 0) AS m FROM jobs').get() as {
       m: number;
