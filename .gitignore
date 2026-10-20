@@ -1,0 +1,15 @@
+node_modules/
+out/
+dist/
+release/
+coverage/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+Thumbs.db
+# 테스트 실행 시 FFmpeg로 재생성되는 픽스처 (재현 가능하므로 커밋하지 않음)
+tests/fixtures/generated/
+# 로컬 바이너리 (환경별로 resources/binaries/README.md 절차에 따라 배치)
+resources/binaries/*/ffmpeg*
+resources/binaries/*/ffprobe*
