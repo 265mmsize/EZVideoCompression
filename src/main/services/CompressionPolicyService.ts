@@ -11,6 +11,7 @@
  * 이 모듈은 인자 배열만 만들고 실행하지 않는다. 실행은 FFmpegProcessService 가 맡는다.
  */
 import path from 'node:path';
+import { hardwareEncodeArgs } from './HardwareEncoderService';
 import type {
   AnalysisResult,
   JobSettings,
@@ -20,7 +21,7 @@ import type {
   VideoCodec,
 } from '../../shared/types/domain';
 
-export type EncoderName = 'libx264' | 'libx265' | 'copy';
+export type EncoderName = string;
 
 /**
  * 인코더별 기본 CRF. 서로 다른 인코더의 값을 재사용하지 않는다.
@@ -50,10 +51,19 @@ export const PRESET_SPECS: Readonly<Record<Preset, PresetSpec>> = {
   speed: { x264: 'veryfast', x265: 'veryfast', crfOffset: 2 },
 };
 
+/** 모드·프리셋·코덱으로 정해지는 기본 CRF. 사용자가 CRF 를 지정했으면 그 값이 우선한다. */
+export function defaultCrfFor(settings: JobSettings): number {
+  if (settings.crf !== null) return settings.crf;
+  if (settings.mode === 'fast') return FAST_CRF[settings.codec];
+  return BASE_CRF[settings.codec] + PRESET_SPECS[settings.preset].crfOffset;
+}
+
 export const AUDIO_TRANSCODE_KBPS_STEREO = 128;
 export const AUDIO_TRANSCODE_KBPS_MULTI = 384;
 
 export interface EncodePlanOptions {
+  /** 빠른 압축에서 쓸 하드웨어 인코더. null 이면 CPU 인코더를 쓴다. */
+  hardwareEncoder?: { name: string; family: 'nvenc' | 'qsv' | 'amf' } | null;
   inputPath: string;
   outputPath: string;
   /** 2-pass 로그 접두사 (작업 전용 임시 디렉터리 안) */
@@ -92,6 +102,8 @@ export function encoderLabel(enc: EncoderName): string {
       return 'libx265 (CPU, 소프트웨어)';
     case 'copy':
       return '스트림 복사 (재인코딩 없음)';
+    default:
+      return enc;
   }
 }
 
@@ -227,10 +239,32 @@ export function buildEncodePlan(
   }
 
   // 고품질 자동 / 빠른 압축: CRF 단일 패스
-  const crf =
-    settings.mode === 'fast'
-      ? FAST_CRF[settings.codec]
-      : BASE_CRF[settings.codec] + preset.crfOffset;
+  // 빠른 압축 + 하드웨어 인코더: 품질 값은 하드웨어 전용 표를 쓴다 (CRF 값을 재사용하지 않는다)
+  if (settings.mode === 'fast' && opts.hardwareEncoder) {
+    const hw = opts.hardwareEncoder;
+    const args = [
+      ...common(),
+      ...hardwareEncodeArgs(hw.name, hw.family, settings.codec),
+      '-pix_fmt',
+      pixFmt,
+      '-fps_mode',
+      'passthrough',
+      ...tagArgs,
+      ...outputArgs(),
+      opts.outputPath,
+    ];
+    return {
+      encoder: hw.name,
+      encoderLabel: `${hw.name} (하드웨어 가속, 미검증 장치에서는 CPU 로 대체 가능)`,
+      passCount: 1,
+      passes: [args],
+      videoKbps: null,
+      passLogPrefix: opts.passLogPrefix,
+      notes,
+    };
+  }
+
+  const crf = defaultCrfFor(settings);
   const speed = settings.mode === 'fast' ? fastPreset : presetName;
   const args = [
     ...common(),

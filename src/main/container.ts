@@ -15,6 +15,8 @@ import { FFmpegToolLocator, type LocatorOptions } from './services/FFmpegToolLoc
 import { MediaProbeService } from './services/MediaProbeService';
 import { OutputValidationService } from './services/OutputValidationService';
 import { JobRunner, type ToolPaths } from './services/JobRunner';
+import { SampleEncodeService } from './services/SampleEncodeService';
+import { HardwareEncoderService } from './services/HardwareEncoderService';
 import { JobQueueService } from './services/JobQueueService';
 import type { EventChannel } from '../shared/contracts/ipc';
 
@@ -87,13 +89,17 @@ export function createServices(opts: ContainerOptions): AppServices {
   };
 
   const runner = new JobRunner(proc, probe, validator, logger, requireTools);
+  const sampler = new SampleEncodeService(proc);
+  const hardware = new HardwareEncoderService(proc);
   const queue = new JobQueueService({
     jobs,
     settings,
     runner,
+    sampler,
     logger,
     tempRoot,
     tools: requireTools,
+    hardwareStatuses: () => status?.hardwareEncoders ?? [],
     emit: opts.emit,
   });
 
@@ -109,7 +115,12 @@ export function createServices(opts: ContainerOptions): AppServices {
     queue,
     toolStatus: () => status,
     refreshTools: async () => {
-      status = await locator.locate(locatorOptions());
+      const located = await locator.locate(locatorOptions());
+      // 하드웨어 검사는 도구가 준비된 경우에만 수행한다 (테스트 인코딩은 실제 ffmpeg 를 실행한다)
+      const hardwareEncoders = located.ffmpeg.path
+        ? await hardware.probeAll(located.ffmpeg.path)
+        : [];
+      status = { ...located, hardwareEncoders };
       logger.info('tools located', {
         ffmpeg: status.ffmpeg.path,
         ffprobe: status.ffprobe.path,

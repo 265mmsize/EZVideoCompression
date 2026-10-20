@@ -78,6 +78,11 @@ export function registerIpc(deps: IpcDeps): void {
     'jobs:cancel': ({ id }) => s.queue.cancel(id),
     'jobs:retry': ({ id }) => s.queue.retry(id),
     'jobs:remove': ({ id }) => ({ removed: s.queue.remove(id) }),
+    'jobs:recommend': ({ id }) => s.queue.recommend(id),
+    'jobs:cancelRecommend': ({ id }) => {
+      s.queue.cancelRecommend(id);
+      return { cancelled: true };
+    },
 
     'queue:state': () => s.queue.queueState(),
     'queue:setPaused': ({ paused }) => s.queue.setPaused(paused),
@@ -154,5 +159,6 @@ function emptyToolStatus(): import('../../shared/types/domain').ToolStatus {
     ffprobe: { name: 'ffprobe', ...none },
     ready: false,
     encoders: [],
+    hardwareEncoders: [],
   };
 }

@@ -98,3 +98,13 @@ export async function exportLogs(maskPaths: boolean): Promise<void> {
   const res = await run('로그 내보내기', () => call('logs:export', { maskPaths }));
   if (res) notify('info', `로그를 저장했습니다: ${res.path}`);
 }
+
+export async function recommendJob(id: string): Promise<void> {
+  await run('샘플 추천', () => call('jobs:recommend', { id }));
+  await refreshJobs();
+}
+
+export async function cancelRecommend(id: string): Promise<void> {
+  await run('추천 취소', () => call('jobs:cancelRecommend', { id }));
+  await refreshJobs();
+}

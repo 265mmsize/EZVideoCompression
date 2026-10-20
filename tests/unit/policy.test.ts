@@ -95,6 +95,7 @@ const S = (over: Partial<JobSettings> = {}): JobSettings => ({
   codec: 'h264',
   targetMiB: null,
   videoStreamIndex: null,
+  crf: null,
   ...over,
 });
 

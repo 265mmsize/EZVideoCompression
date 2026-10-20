@@ -17,6 +17,7 @@ import {
   startQueue,
   updateJobSettings,
 } from '../actions';
+import { RecommendationPanel } from './RecommendationPanel';
 
 const PRESET_LABEL: Record<JobSettings['preset'], string> = {
   compatibility: '호환성 우선',
@@ -276,6 +277,8 @@ export function JobDetail({ job, onClose }: { job: JobView; onClose: () => void 
           <p className="text-xs text-[var(--c-muted)]">{analysis.timeEstimate.note}</p>
         </Section>
       )}
+
+      {probe && <RecommendationPanel job={job} />}
 
       {job.validation && (
         <Section title="검증 결과">

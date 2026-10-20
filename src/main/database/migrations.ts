@@ -66,6 +66,11 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    description: '샘플 품질 추천 결과 컬럼',
+    up: `ALTER TABLE jobs ADD COLUMN recommendation_json TEXT;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

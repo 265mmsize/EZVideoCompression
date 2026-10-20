@@ -25,6 +25,7 @@ export const ERROR_CODES = [
   'TARGET_EXCEEDED',
   'CANCELLED',
   'INTERRUPTED',
+  'SAMPLE_TIMEOUT',
   'UNKNOWN',
 ] as const;
 
@@ -135,6 +136,11 @@ export const ERROR_CATALOG: Readonly<Record<ErrorCode, ErrorInfo>> = {
     title: '앱 종료로 작업이 중단되었습니다',
     cause: '인코딩 중 앱이 종료되었거나 비정상 종료되었습니다.',
     action: '재시도하면 처음부터 다시 처리합니다. 중간 지점 재개는 지원하지 않습니다.',
+  },
+  SAMPLE_TIMEOUT: {
+    title: '샘플 품질 추천 시간이 초과되었습니다',
+    cause: '샘플 구간 인코딩과 측정이 제한 시간(2분)을 넘었습니다.',
+    action: '추천 없이 기본 설정으로 진행하거나 다시 시도하세요.',
   },
   UNKNOWN: {
     title: '알 수 없는 오류가 발생했습니다',

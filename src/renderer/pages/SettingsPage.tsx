@@ -49,6 +49,33 @@ export function SettingsPage(): ReactNode {
           사용 가능한 소프트웨어 인코더:{' '}
           {tools?.encoders.length ? tools.encoders.join(', ') : '없음'}
         </p>
+        <div className="space-y-1 text-sm">
+          <p className="font-medium">하드웨어 인코더 (테스트 인코딩 통과 시에만 사용 가능)</p>
+          <ul className="space-y-0.5 text-xs">
+            {(tools?.hardwareEncoders ?? []).map((h) => (
+              <li key={h.name}>
+                {h.name}:{' '}
+                {h.available ? (
+                  <span className="text-[var(--c-ok)]">사용 가능</span>
+                ) : (
+                  <span className="text-[var(--c-muted)]">사용 안 함 — {h.reason}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-[var(--c-muted)]">
+            하드웨어 인코더는 장치별로 검증되지 않았습니다. 실패하면 자동으로 CPU 인코더로 대체하고
+            결과에 기록합니다.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.fastUseHardware}
+            onChange={(e) => save({ fastUseHardware: e.target.checked })}
+          />
+          빠른 압축에서 사용 가능한 하드웨어 인코더를 먼저 사용
+        </label>
         <PathField
           label="ffmpeg 경로 (비우면 자동 탐색)"
           value={settings.ffmpegPath ?? ''}

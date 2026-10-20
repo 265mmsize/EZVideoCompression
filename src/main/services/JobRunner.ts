@@ -21,7 +21,7 @@ import type {
 } from '../../shared/types/domain';
 import { AppError } from './AppError';
 import { analyzeCapability, bytesPerMiB } from './CapabilityService';
-import { buildEncodePlan, passLogPrefixIn } from './CompressionPolicyService';
+import { buildEncodePlan, passLogPrefixIn, type EncodePlan } from './CompressionPolicyService';
 import {
   assertDiskSpace,
   assertInputUnchanged,
@@ -68,6 +68,8 @@ export interface EncodeContext {
   reservedOutputs: ReadonlySet<string>;
   signal: AbortSignal;
   historicalSpeed: number | null;
+  /** 빠른 압축에서 사용할 하드웨어 인코더 (없으면 CPU) */
+  hardwareEncoder: { name: string; family: 'nvenc' | 'qsv' | 'amf' } | null;
   callbacks: {
     onStatus: (status: JobStatus) => void;
     onProgress: (p: JobProgress) => void;
@@ -155,6 +157,8 @@ export class JobRunner {
       let outSize = 0;
       let validation: ValidationReport | null = null;
       let encoderName = 'copy';
+      let hwActive = ctx.hardwareEncoder !== null;
+      let hwFallbackNote: string | null = null;
 
       for (attempt = 1; attempt <= maxAttempts; attempt++) {
         throwIfAborted(signal);
@@ -164,9 +168,12 @@ export class JobRunner {
           outputPath: tempPath,
           passLogPrefix: passLogPrefixIn(path.join(tempDir, `attempt-${String(attempt)}`)),
           videoKbpsOverride: kbpsOverride,
+          hardwareEncoder: hwActive ? ctx.hardwareEncoder : null,
           nullSink: process.platform === 'win32' ? 'NUL' : '/dev/null',
         });
-        encoderName = plan.encoderLabel;
+        encoderName = hwFallbackNote
+          ? `${plan.encoderLabel} · ${hwFallbackNote}`
+          : plan.encoderLabel;
         if (plan.passLogPrefix) fs.mkdirSync(path.dirname(plan.passLogPrefix), { recursive: true });
         this.logger.info('plan', {
           jobId,
@@ -176,38 +183,23 @@ export class JobRunner {
           videoKbps: plan.videoKbps,
         });
 
-        for (let i = 0; i < plan.passes.length; i++) {
-          const args = plan.passes[i] as string[];
-          const estimator = new ProgressEstimator(ctx.probe.durationSec.value, Date.now());
-          const result = await this.proc.run(tools.ffmpeg, args, {
-            jobId,
-            signal,
-            stallTimeoutMs: ENCODE_STALL_TIMEOUT_MS,
-            onProgress: (s) => {
-              const snap = estimator.update(s.outTimeSec, s.speed, Date.now(), {
-                index: i,
-                count: plan.passCount,
-              });
-              ctx.callbacks.onProgress({
-                ratio: snap.ratio,
-                speed: snap.speed,
-                etaSec: snap.etaSec,
-                outTimeSec: snap.outTimeSec,
-              });
-            },
-            onStderrLine: (line) => {
-              if (/error|invalid|failed/i.test(line)) this.logger.warn('ffmpeg', { jobId, line });
-            },
-          });
-          if (result.cancelled || signal.aborted) throw new AppError('CANCELLED');
-          if (result.stalled)
-            throw new AppError('ENCODE_STALLED', result.stderrTail.slice(-5).join('\n'));
-          if (result.exitCode !== 0 || result.signal) {
-            throw new AppError(
-              'ENCODE_FAILED',
-              `코드 ${String(result.exitCode)}${result.signal ? ` 신호 ${result.signal}` : ''}\n${result.stderrTail.slice(-20).join('\n')}`,
-            );
+        try {
+          await this.runPasses(plan, { jobId, ctx, tools, signal });
+        } catch (err) {
+          // 하드웨어 인코더 실패: CPU 로 한 번 대체하고 같은 시도를 다시 한다 (시도 횟수는 소모하지 않는다)
+          const app = AppError.from(err);
+          if (hwActive && app.code === 'ENCODE_FAILED') {
+            hwActive = false;
+            hwFallbackNote = `${ctx.hardwareEncoder?.name ?? 'GPU'} 실패 후 CPU 로 대체`;
+            this.logger.warn('hardware encoder failed, falling back to CPU', {
+              jobId,
+              encoder: ctx.hardwareEncoder?.name,
+              detail: app.detail,
+            });
+            attempt -= 1;
+            continue;
           }
+          throw app;
         }
 
         throwIfAborted(signal);
@@ -307,6 +299,47 @@ export class JobRunner {
       // 성공·실패·취소 모두 작업 전용 임시 디렉터리를 정리한다. 임시 출력 파일은 위에서 개별 처리했다.
       removeAppTempFile(tempPath);
       fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  /** 계획의 모든 패스를 순서대로 실행한다. 종료 코드·멈춤·취소를 구분해 오류 코드로 바꾼다. */
+  private async runPasses(
+    plan: EncodePlan,
+    env: { jobId: string; ctx: EncodeContext; tools: ToolPaths; signal: AbortSignal },
+  ): Promise<void> {
+    const { jobId, ctx, tools, signal } = env;
+    for (let i = 0; i < plan.passes.length; i++) {
+      const args = plan.passes[i] as string[];
+      const estimator = new ProgressEstimator(ctx.probe.durationSec.value, Date.now());
+      const result = await this.proc.run(tools.ffmpeg, args, {
+        jobId,
+        signal,
+        stallTimeoutMs: ENCODE_STALL_TIMEOUT_MS,
+        onProgress: (s) => {
+          const snap = estimator.update(s.outTimeSec, s.speed, Date.now(), {
+            index: i,
+            count: plan.passCount,
+          });
+          ctx.callbacks.onProgress({
+            ratio: snap.ratio,
+            speed: snap.speed,
+            etaSec: snap.etaSec,
+            outTimeSec: snap.outTimeSec,
+          });
+        },
+        onStderrLine: (line) => {
+          if (/error|invalid|failed/i.test(line)) this.logger.warn('ffmpeg', { jobId, line });
+        },
+      });
+      if (result.cancelled || signal.aborted) throw new AppError('CANCELLED');
+      if (result.stalled)
+        throw new AppError('ENCODE_STALLED', result.stderrTail.slice(-5).join('\n'));
+      if (result.exitCode !== 0 || result.signal) {
+        throw new AppError(
+          'ENCODE_FAILED',
+          `코드 ${String(result.exitCode)}${result.signal ? ` 신호 ${result.signal}` : ''}\n${result.stderrTail.slice(-20).join('\n')}`,
+        );
+      }
     }
   }
 }

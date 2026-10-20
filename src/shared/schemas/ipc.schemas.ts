@@ -24,6 +24,7 @@ export const jobSettingsSchema = z.object({
   codec: z.enum(VIDEO_CODECS),
   targetMiB: z.number().positive().max(1_000_000).nullable(),
   videoStreamIndex: z.number().int().min(0).max(1000).nullable(),
+  crf: z.number().int().min(10).max(40).nullable(),
 });
 
 export const appSettingsSchema = z.object({
@@ -32,6 +33,7 @@ export const appSettingsSchema = z.object({
   ffprobePath: absolutePath.nullable(),
   defaults: jobSettingsSchema,
   keepLargerResults: z.boolean(),
+  fastUseHardware: z.boolean(),
   includeSubfoldersDefault: z.boolean(),
   outputFolderMode: z.enum(['same', 'custom']),
   customOutputDir: absolutePath.nullable(),
@@ -66,6 +68,8 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'jobs:cancel': z.object({ id: idSchema }),
   'jobs:retry': z.object({ id: idSchema }),
   'jobs:remove': z.object({ id: idSchema }),
+  'jobs:recommend': z.object({ id: idSchema }),
+  'jobs:cancelRecommend': z.object({ id: idSchema }),
   'queue:state': voidSchema,
   'queue:setPaused': z.object({ paused: z.boolean() }),
   'history:list': z.object({

@@ -72,6 +72,8 @@ export class FFmpegToolLocator {
         ffmpeg.error === null &&
         ffprobe.error === null,
       encoders,
+      // 하드웨어 인코더 검사는 HardwareEncoderService 가 맡고, 컨테이너가 결과를 채운다
+      hardwareEncoders: [],
     };
   }
 

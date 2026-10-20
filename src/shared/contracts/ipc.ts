@@ -53,6 +53,10 @@ export interface InvokeContract {
   'jobs:cancel': { request: { id: string }; response: JobView };
   /** 실패·취소·중단·완료 작업을 처음부터 다시 분석한다 */
   'jobs:retry': { request: { id: string }; response: JobView };
+  /** 샘플 기반 품질 추천을 계산한다 (준비됨 상태, 고품질·빠른 모드). 완료 시 추천 결과가 담긴 작업을 돌려준다. */
+  'jobs:recommend': { request: { id: string }; response: JobView };
+  /** 진행 중인 샘플 추천을 취소한다 */
+  'jobs:cancelRecommend': { request: { id: string }; response: { cancelled: boolean } };
   /** 목록에서 작업 기록을 삭제한다. 원본과 결과 파일은 건드리지 않는다. */
   'jobs:remove': { request: { id: string }; response: { removed: boolean } };
 
@@ -117,6 +121,8 @@ export const CHANNEL_NAMES = {
     'jobs:cancel',
     'jobs:retry',
     'jobs:remove',
+    'jobs:recommend',
+    'jobs:cancelRecommend',
     'queue:state',
     'queue:setPaused',
     'history:list',

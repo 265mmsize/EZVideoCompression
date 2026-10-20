@@ -14,6 +14,7 @@ import path from 'node:path';
 import type {
   AddResult,
   AnalysisResult,
+  HardwareEncoderStatus,
   JobProgress,
   JobSettings,
   JobStatus,
@@ -32,6 +33,7 @@ import { analyzeCapability } from './CapabilityService';
 import { assertTransition } from './JobStateMachine';
 import { isAppTempFile, normalizeForCompare, removeAppTempFile } from './FileFinalizeService';
 import type { JobRunner, ToolPaths } from './JobRunner';
+import type { SampleEncodeService } from './SampleEncodeService';
 
 /** 폴더 추가 시 후보로 삼을 확장자. 실제 판정은 ffprobe 가 한다. 파일 직접 선택에는 적용하지 않는다. */
 export const VIDEO_EXTENSIONS = [
@@ -81,10 +83,13 @@ export interface QueueDeps {
   jobs: JobRepository;
   settings: SettingsRepository;
   runner: JobRunner;
+  sampler: SampleEncodeService;
   logger: Logger;
   tempRoot: string;
   /** 도구 경로. 탐지되지 않았으면 TOOL_NOT_FOUND 를 던진다. */
   tools: () => ToolPaths;
+  /** 하드웨어 인코더 검사 결과 (없으면 빈 목록) */
+  hardwareStatuses: () => HardwareEncoderStatus[];
   emit: Emit;
   now?: () => Date;
 }
@@ -96,6 +101,8 @@ export class JobQueueService {
   private running: { jobId: string; controller: AbortController } | null = null;
   private analysisChain: Promise<void> = Promise.resolve();
   private pumping = false;
+  /** 샘플 추천 실행 중인 작업과 취소 컨트롤러 */
+  private readonly sampling = new Map<string, AbortController>();
 
   constructor(private readonly deps: QueueDeps) {}
 
@@ -183,6 +190,8 @@ export class JobQueueService {
       throw new AppError('INVALID_STATE', '분석이 끝난 대기 작업(ready)의 설정만 바꿀 수 있습니다');
     }
     const next: JobSettings = { ...row.settings, ...patch };
+    // CRF 는 코덱마다 의미가 다르므로 코덱이 바뀌면 샘플로 정한 값을 버린다
+    if (patch.codec !== undefined && patch.codec !== row.settings.codec) next.crf = null;
     if (next.mode === 'target' && (next.targetMiB === null || next.targetMiB <= 0)) {
       throw new AppError('INVALID_REQUEST', '목표 용량 모드에서는 목표 용량(MB)을 입력해야 합니다');
     }
@@ -228,6 +237,55 @@ export class JobQueueService {
       throw new AppError('INVALID_STATE', '대기열 작업만 되돌릴 수 있습니다');
     this.transition(id, 'ready');
     return this.emitJob(id);
+  }
+
+  /**
+   * 샘플 품질 추천. 준비됨 상태의 고품질·빠른 모드 작업에만 쓴다.
+   * 실행 결과는 추천 정보로만 저장하며 설정을 자동으로 바꾸지 않는다 (사용자가 적용해야 한다).
+   */
+  async recommend(id: string): Promise<JobView> {
+    const row = this.get(id);
+    if (row.status !== 'ready' || !row.probe || !row.analysis) {
+      throw new AppError('INVALID_STATE', '분석이 끝난 준비됨 상태의 작업만 추천할 수 있습니다');
+    }
+    if (row.settings.mode !== 'quality' && row.settings.mode !== 'fast') {
+      throw new AppError(
+        'INVALID_STATE',
+        '고품질 자동 또는 빠른 압축 모드에서만 추천을 사용할 수 있습니다',
+      );
+    }
+    if (row.analysis.primaryVideoIndex === null) {
+      throw new AppError('INVALID_STATE', '주 영상 트랙이 없습니다');
+    }
+    if (this.sampling.has(id)) throw new AppError('INVALID_STATE', '이미 추천을 계산 중입니다');
+
+    const controller = new AbortController();
+    this.sampling.set(id, controller);
+    this.emitJob(id);
+    try {
+      const tools = this.deps.tools();
+      const recommendation = await this.deps.sampler.recommend({
+        jobId: id,
+        inputPath: row.inputPath,
+        probe: row.probe,
+        settings: row.settings,
+        primaryIndex: row.analysis.primaryVideoIndex,
+        ffmpegPath: tools.ffmpeg,
+        tempRoot: this.deps.tempRoot,
+        signal: controller.signal,
+      });
+      this.deps.jobs.update(id, { recommendation });
+    } finally {
+      this.sampling.delete(id);
+    }
+    return this.emitJob(id);
+  }
+
+  /** 샘플 추천을 취소한다. 취소되면 기록은 남기지 않는다. */
+  cancelRecommend(id: string): void {
+    const c = this.sampling.get(id);
+    if (!c) throw new AppError('INVALID_STATE', '추천 계산 중인 작업이 아닙니다');
+    c.abort();
   }
 
   /** 현재 실행 중인 작업을 취소한다. 실제 종료와 정리는 runJob 의 흐름에서 끝난다. */
@@ -434,6 +492,7 @@ export class JobQueueService {
         reservedOutputs: reserved,
         signal: controller.signal,
         historicalSpeed: this.historicalSpeed(row.settings),
+        hardwareEncoder: this.pickHardware(row.settings),
         callbacks: {
           onStatus: (status) => {
             this.transition(id, status);
@@ -506,6 +565,15 @@ export class JobQueueService {
     };
   }
 
+  /** 빠른 압축에서 쓸 하드웨어 인코더. 설정이 꺼져 있거나 사용 가능한 것이 없으면 null (CPU). */
+  private pickHardware(
+    settings: JobSettings,
+  ): { name: string; family: 'nvenc' | 'qsv' | 'amf' } | null {
+    if (settings.mode !== 'fast' || !this.deps.settings.get().fastUseHardware) return null;
+    const hit = this.deps.hardwareStatuses().find((h) => h.codec === settings.codec && h.available);
+    return hit ? { name: hit.name, family: hit.family } : null;
+  }
+
   private resolveOutputDir(row: JobRow): string {
     const s = this.deps.settings.get();
     if (s.outputFolderMode === 'custom') {
@@ -549,7 +617,7 @@ export class JobQueueService {
   private emitJob(id: string): JobView {
     const row = this.get(id);
     const [withPos] = this.withPositions([row]);
-    const view = toView(withPos ?? row);
+    const view = { ...toView(withPos ?? row), sampling: this.sampling.has(id) };
     this.deps.emit('job:changed', view);
     return view;
   }

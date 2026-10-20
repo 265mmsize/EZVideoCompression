@@ -12,6 +12,7 @@ import type {
   JobStatus,
   JobView,
   ProbeResult,
+  QualityRecommendation,
   ValidationReport,
 } from '../../shared/types/domain';
 import { ACTIVE_STATUSES } from '../../shared/types/domain';
@@ -45,6 +46,7 @@ interface RawRow {
   error_code: string | null;
   error_detail: string | null;
   validation_json: string | null;
+  recommendation_json: string | null;
   encoder_name: string | null;
   encoder_version: string | null;
   avg_speed: number | null;
@@ -83,6 +85,7 @@ export interface JobPatch {
   errorCode?: ErrorCode | null;
   errorDetail?: string | null;
   validation?: ValidationReport | null;
+  recommendation?: QualityRecommendation | null;
   encoderName?: string | null;
   encoderVersion?: string | null;
   avgSpeed?: number | null;
@@ -192,6 +195,11 @@ export class JobRepository {
     if (patch.errorDetail !== undefined) set('error_detail', patch.errorDetail);
     if (patch.validation !== undefined)
       set('validation_json', patch.validation ? JSON.stringify(patch.validation) : null);
+    if (patch.recommendation !== undefined)
+      set(
+        'recommendation_json',
+        patch.recommendation ? JSON.stringify(patch.recommendation) : null,
+      );
     if (patch.encoderName !== undefined) set('encoder_name', patch.encoderName);
     if (patch.encoderVersion !== undefined) set('encoder_version', patch.encoderVersion);
     if (patch.avgSpeed !== undefined) set('avg_speed', patch.avgSpeed);
@@ -244,11 +252,16 @@ export class JobRepository {
 }
 
 function toRow(r: RawRow): JobRow {
-  const settings = JSON.parse(r.settings_json) as JobSettings;
+  // crf 는 나중에 추가된 키이므로 이전 행에는 없을 수 있다
+  const parsed = JSON.parse(r.settings_json) as Omit<JobSettings, 'crf'> & { crf?: number | null };
+  const settings: JobSettings = { ...parsed, crf: parsed.crf ?? null };
   const progress = r.progress_json ? (JSON.parse(r.progress_json) as JobProgress) : EMPTY_PROGRESS;
   const probe = r.probe_json ? (JSON.parse(r.probe_json) as ProbeResult) : null;
   const analysis = r.analysis_json ? (JSON.parse(r.analysis_json) as AnalysisResult) : null;
   const validation = r.validation_json ? (JSON.parse(r.validation_json) as ValidationReport) : null;
+  const recommendation = r.recommendation_json
+    ? (JSON.parse(r.recommendation_json) as QualityRecommendation)
+    : null;
   return {
     id: r.id,
     inputPath: r.input_path,
@@ -267,6 +280,8 @@ function toRow(r: RawRow): JobRow {
     errorCode: r.error_code,
     errorDetail: r.error_detail,
     validation,
+    recommendation,
+    sampling: false,
     encoderName: r.encoder_name,
     encoderVersion: r.encoder_version,
     queuePosition: 0,
@@ -299,6 +314,8 @@ export function toView(row: JobRow): JobView {
     errorCode: row.errorCode,
     errorDetail: row.errorDetail,
     validation: row.validation,
+    recommendation: row.recommendation,
+    sampling: row.sampling,
     encoderName: row.encoderName,
     encoderVersion: row.encoderVersion,
     queuePosition: row.queuePosition,

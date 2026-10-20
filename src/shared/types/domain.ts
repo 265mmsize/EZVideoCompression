@@ -103,6 +103,8 @@ export interface JobSettings {
   targetMiB: number | null;
   /** 주 영상 트랙의 FFmpeg 절대 스트림 인덱스. null 이면 자동 선택 */
   videoStreamIndex: number | null;
+  /** 샘플 추천으로 정한 CRF. null 이면 프리셋 기본값을 쓴다 (고품질·빠른 모드에만 적용) */
+  crf: number | null;
 }
 
 export interface AppSettings {
@@ -113,6 +115,8 @@ export interface AppSettings {
   defaults: JobSettings;
   /** 결과가 원본보다 크거나 같을 때 결과 파일을 보관할지 여부 */
   keepLargerResults: boolean;
+  /** 빠른 압축에서 사용 가능한 하드웨어 인코더를 먼저 쓸지 여부 (실패 시 CPU 로 대체) */
+  fastUseHardware: boolean;
   includeSubfoldersDefault: boolean;
   /** 출력 위치: 원본과 같은 폴더 또는 지정 폴더 */
   outputFolderMode: 'same' | 'custom';
@@ -282,10 +286,37 @@ export interface JobView {
   validation: ValidationReport | null;
   encoderName: string | null;
   encoderVersion: string | null;
+  recommendation: QualityRecommendation | null;
+  /** 샘플 추천이 실행 중인지 */
+  sampling: boolean;
   queuePosition: number;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+/** 샘플 기반 품질 추천 결과. 샘플 구간 평가이며 전체 영상 품질 검증이 아니다. */
+export interface QualityRecommendation {
+  method: 'ssim';
+  /** 판정 기준 (SSIM 평균이 아니라 구간별 최솟값에 적용) */
+  threshold: number;
+  candidates: {
+    crf: number;
+    /** 구간별 SSIM 의 최솟값 (0~1). 백분율이 아니다. */
+    minSsim: number;
+    meanSsim: number;
+    /** 샘플 비트레이트로부터 추정한 전체 영상 영상(video) 용량 범위 (바이트). 확정값 아님. */
+    estVideoBytesMin: number;
+    estVideoBytesMax: number;
+  }[];
+  recommendedCrf: number;
+  /** met: 기준 충족 후보 중 추천, notMet: 기준 미달이라 가장 높은 화질 후보를 추천 */
+  verdict: 'met' | 'notMet';
+  sampleSegments: { startSec: number; durationSec: number }[];
+  sampledSec: number;
+  elapsedSec: number;
+  note: string;
+  createdAt: string;
 }
 
 export interface ToolInfo {
@@ -296,12 +327,22 @@ export interface ToolInfo {
   error: string | null;
 }
 
+/** 하드웨어 인코더 검사 결과. available 은 테스트 인코딩 성공 여부다 (모델 이름만으로 판단하지 않는다). */
+export interface HardwareEncoderStatus {
+  name: string;
+  family: 'nvenc' | 'qsv' | 'amf';
+  codec: VideoCodec;
+  available: boolean;
+  reason: string | null;
+}
+
 export interface ToolStatus {
   ffmpeg: ToolInfo;
   ffprobe: ToolInfo;
   ready: boolean;
-  /** 사용 가능한 인코더 목록 확인 결과 (현재 소프트웨어 인코더만 검사) */
+  /** 사용 가능한 소프트웨어 인코더 목록 (libx264, libx265) */
   encoders: string[];
+  hardwareEncoders: HardwareEncoderStatus[];
 }
 
 export interface QueueState {

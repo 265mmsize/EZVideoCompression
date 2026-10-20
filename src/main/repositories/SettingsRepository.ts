@@ -17,8 +17,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     codec: 'h264',
     targetMiB: null,
     videoStreamIndex: null,
+    crf: null,
   },
   keepLargerResults: false,
+  fastUseHardware: true,
   includeSubfoldersDefault: false,
   outputFolderMode: 'same',
   customOutputDir: null,
@@ -36,7 +38,13 @@ export class SettingsRepository {
     if (!row) return structuredClone(DEFAULT_SETTINGS);
     try {
       const parsed: unknown = JSON.parse(row.value_json);
-      const merged = { ...DEFAULT_SETTINGS, ...(parsed as object) };
+      const stored = parsed as Partial<AppSettings>;
+      // 이전 버전에서 저장된 값은 새로 생긴 키가 없을 수 있으므로 기본값과 깊게 병합한다
+      const merged = {
+        ...DEFAULT_SETTINGS,
+        ...stored,
+        defaults: { ...DEFAULT_SETTINGS.defaults, ...stored.defaults },
+      };
       const checked = appSettingsSchema.safeParse(merged);
       return checked.success ? checked.data : structuredClone(DEFAULT_SETTINGS);
     } catch {
