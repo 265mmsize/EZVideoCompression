@@ -6,7 +6,7 @@
 > **현재 상태**: 1~5단계 중 모든 항목을 완료하지는 못했습니다. 구현 상태와 미구현 목록은
 > [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) 를 보세요.
 > Windows 빌드에는 FFmpeg 6.0 (GPL v3) 이 번들됩니다. 배포자는 GPL 소스 제공 의무를 이행해야 하며,
-> 설치 파일은 서명되지 않습니다. 설치 파일 생성은 Windows 에서 해야 합니다 (Linux 에서는 wine 이 필요합니다).
+> 설치 파일은 서명되지 않습니다. 설치 파일은 Windows 또는 wine(32·64비트)이 있는 Linux 에서 만듭니다.
 
 ## 주요 기능
 
@@ -57,11 +57,12 @@ npm run fixtures       # 테스트 합성 영상만 생성 (tests/fixtures/gener
 npm run build          # out/ 에 main, preload, renderer 빌드
 npm run pack:linux-dir # Linux 패키지 (파이프라인 검증용)
 npm run fetch:ffmpeg    # FFmpeg 6.0 Windows 바이너리를 SHA-256 검증 후 resources/binaries/win32-x64 에 배치
-npm run pack:win         # Windows 설치 파일과 포터블 (Windows 에서 실행)
+npm run pack:win         # Windows NSIS 설치 파일과 포터블 실행 파일 (Windows, 또는 wine64·wine32 + xvfb 가 있는 Linux)
+npm run verify:win       # 생성된 설치 파일·포터블을 7z 로 해부해 페이로드·FFmpeg 해시·라이선스·버전 정보 확인
 node scripts/gen-licenses.mjs   # 제3자 라이선스 고지 재생성
 ```
 
-`release/` 에 결과가 생성됩니다. 배포 전 체크리스트는 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) 를 따르세요.
+`release/` 에 `VideoSlim Desktop-Setup-<버전>-x64.exe` 와 `VideoSlim Desktop-Portable-<버전>-x64.exe` 가 생성됩니다. 배포 전 체크리스트는 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) 를 따르세요.
 
 ## 프로젝트 구조
 
@@ -85,6 +86,7 @@ scripts/           라이선스 고지 생성
 - [DB 스키마와 마이그레이션](docs/DB_SCHEMA.md)
 - [테스트 결과](docs/TEST_REPORT.md)
 - [배포 체크리스트](docs/RELEASE_CHECKLIST.md)
+- [릴리스 노트](docs/RELEASE_NOTES.md)
 - [제3자 라이선스 고지](resources/licenses/THIRD_PARTY_NOTICES.md)
 
 ## 기술 선택

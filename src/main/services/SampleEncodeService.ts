@@ -189,6 +189,9 @@ export class SampleEncodeService {
           'ffv1',
           '-pix_fmt',
           pixFmt,
+          // 기준본과 후보가 같은 프레임 수·타임스탬프를 갖도록 둘 다 passthrough 로 만든다 (SSIM 정렬)
+          '-fps_mode',
+          'passthrough',
           ref,
         ]);
         refs.push(ref);
@@ -242,6 +245,8 @@ export class SampleEncodeService {
             ...codecArgs,
             '-pix_fmt',
             pixFmt,
+            '-fps_mode',
+            'passthrough',
             '-f',
             input.settings.container === 'mp4' ? 'mp4' : 'matroska',
             out,

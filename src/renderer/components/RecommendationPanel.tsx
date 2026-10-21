@@ -19,7 +19,8 @@ export function RecommendationPanel({ job }: { job: JobView }): ReactNode {
       <h3 className="text-sm font-semibold text-[var(--c-muted)]">샘플 품질 추천</h3>
       <p className="text-xs text-[var(--c-muted)]">
         영상 안의 짧은 구간 여러 곳을 인코딩해 화질(SSIM 0~1)과 용량을 비교합니다. 샘플 평가이며
-        전체 영상의 품질을 검증한 것이 아닙니다. VMAF 는 이 빌드에 libvmaf 가 없어 사용하지
+        전체 영상의 품질을 검증한 것이 아닙니다. VMAF 는 사용하지 않습니다. 추천 CRF 는 CPU
+        인코더(libx264·libx265)에만 적용되며, 빠른 압축이 하드웨어 인코더를 쓰는 경우에는 적용되지
         않습니다.
       </p>
 

@@ -88,6 +88,8 @@ export interface QueueDeps {
   tempRoot: string;
   /** 도구 경로. 탐지되지 않았으면 TOOL_NOT_FOUND 를 던진다. */
   tools: () => ToolPaths;
+  /** 진행 중인 도구 탐지가 끝날 때까지 기다린다 (앱 시작 직후 등록된 작업이 탐지 전에 실패하지 않도록) */
+  toolsReady: () => Promise<void>;
   /** 하드웨어 인코더 검사 결과 (없으면 빈 목록) */
   hardwareStatuses: () => HardwareEncoderStatus[];
   emit: Emit;
@@ -162,7 +164,14 @@ export class JobQueueService {
         skipped.push({ path: file, reason: '이미 목록에 있는 파일입니다' });
         continue;
       }
-      const st = fs.statSync(file);
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(file);
+      } catch {
+        // 폴더를 훑은 뒤 등록하기 전에 사라진 파일
+        skipped.push({ path: file, reason: '등록 중 파일을 찾을 수 없습니다' });
+        continue;
+      }
       const id = randomUUID();
       order += 1;
       const job: NewJob = {
@@ -191,6 +200,7 @@ export class JobQueueService {
     if (row.status !== 'ready') {
       throw new AppError('INVALID_STATE', '분석이 끝난 대기 작업(ready)의 설정만 바꿀 수 있습니다');
     }
+    this.assertNotSampling(id);
     const next: JobSettings = { ...row.settings, ...patch };
     // CRF 는 코덱마다 의미가 다르므로 코덱이 바뀌면 샘플로 정한 값을 버린다
     if (patch.codec !== undefined && patch.codec !== row.settings.codec) next.crf = null;
@@ -226,7 +236,9 @@ export class JobQueueService {
     const targets = this.deps.jobs
       .listByStatus(['ready'])
       .filter((j) => ids === null || ids.includes(j.id))
-      .filter((j) => j.analysis !== null && j.analysis.support !== 'blocked');
+      .filter((j) => j.analysis !== null && j.analysis.support !== 'blocked')
+      // 샘플 추천이 계산 중인 작업은 결과가 설정에 반영될 수 있도록 끝날 때까지 기다린다
+      .filter((j) => !this.sampling.has(j.id));
     for (const j of targets) this.transition(j.id, 'queued');
     for (const j of targets) this.emitJob(j.id);
     this.pump();
@@ -258,6 +270,12 @@ export class JobQueueService {
     }
     if (row.analysis.primaryVideoIndex === null) {
       throw new AppError('INVALID_STATE', '주 영상 트랙이 없습니다');
+    }
+    if (this.pickHardware(row.settings) !== null) {
+      throw new AppError(
+        'INVALID_STATE',
+        '빠른 압축이 하드웨어 인코더를 사용하는 설정에서는 CRF 추천이 적용되지 않습니다. 설정에서 하드웨어 사용을 끄거나 고품질 자동 모드를 선택하세요.',
+      );
     }
     if (this.sampling.has(id)) throw new AppError('INVALID_STATE', '이미 추천을 계산 중입니다');
 
@@ -307,6 +325,7 @@ export class JobQueueService {
     if (!RETRYABLE.includes(row.status)) {
       throw new AppError('INVALID_STATE', '이 상태의 작업은 재시도할 수 없습니다');
     }
+    this.assertNotSampling(id);
     this.cleanupTemp(row);
     this.transition(id, 'probing', {
       errorCode: null,
@@ -332,6 +351,7 @@ export class JobQueueService {
     if (!DELETABLE.includes(row.status)) {
       throw new AppError('INVALID_STATE', '실행 중이거나 분석 중인 작업은 삭제할 수 없습니다');
     }
+    this.assertNotSampling(id);
     this.cleanupTemp(row);
     const removed = this.deps.jobs.delete(id);
     this.deps.emit('job:removed', { id });
@@ -386,6 +406,7 @@ export class JobQueueService {
   /** 앱 종료 시: 실행 중 작업을 취소 요청하고, 분석 체인이 끝날 때까지 기다린다. */
   async shutdown(): Promise<void> {
     this.paused = true;
+    for (const c of this.sampling.values()) c.abort();
     if (this.running) {
       const row = this.get(this.running.jobId);
       if (BUSY.includes(row.status) && row.status !== 'cancelling')
@@ -413,7 +434,7 @@ export class JobQueueService {
   }
 
   private historicalSpeed(settings: JobSettings): number | null {
-    return this.deps.jobs.historicalSpeed(settings.codec, settings.preset);
+    return this.deps.jobs.historicalSpeed(settings.mode, settings.codec, settings.preset);
   }
 
   /** 분석은 직렬 체인에 올려 한 번에 하나만 실행한다. */
@@ -429,6 +450,7 @@ export class JobQueueService {
     const row = this.deps.jobs.get(id);
     if (!row || row.status !== 'probing') return;
     try {
+      await this.deps.toolsReady();
       this.deps.tools(); // 도구가 없으면 여기서 실패한다
       const { probe, analysis } = await this.deps.runner.analyze(
         row.inputPath,
@@ -436,7 +458,13 @@ export class JobQueueService {
         id,
         this.historicalSpeed(row.settings),
       );
-      this.deps.jobs.update(id, { probe, analysis });
+      // 재시도로 다시 분석한 경우 등록 시점 값과 다를 수 있으므로 변경 감지 기준을 분석 시점으로 맞춘다
+      this.deps.jobs.update(id, {
+        probe,
+        analysis,
+        inputSizeBytes: probe.sizeBytes,
+        inputMtimeMs: probe.mtimeMs,
+      });
       this.transition(id, 'analyzing');
       this.transition(id, 'ready', {
         statusMessage: analysis.support === 'blocked' ? '처리 차단: 아래 사유를 확인하세요' : null,
@@ -479,6 +507,7 @@ export class JobQueueService {
 
     const startedMs = Date.now();
     try {
+      await this.deps.toolsReady();
       const row = this.get(id);
       if (!row.probe || !row.analysis) throw new AppError('INVALID_STATE', '분석 결과가 없습니다');
       const appSettings = this.deps.settings.get();
@@ -565,6 +594,15 @@ export class JobQueueService {
       }
     } finally {
       this.emitJob(id);
+    }
+  }
+
+  private assertNotSampling(id: string): void {
+    if (this.sampling.has(id)) {
+      throw new AppError(
+        'INVALID_STATE',
+        '샘플 추천을 계산 중인 작업입니다. 끝나거나 취소한 뒤 다시 시도하세요',
+      );
     }
   }
 

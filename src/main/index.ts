@@ -5,6 +5,7 @@
  * 영상 처리 로직은 여기에 두지 않는다 (src/main/services 에서 Electron 없이 테스트한다).
  */
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, session, shell, type FileFilter } from 'electron';
 import { createServices, type AppServices } from './container';
 import { registerIpc, type DialogPort } from './ipc/registerIpc';
@@ -72,32 +73,35 @@ function bootstrap(): void {
 
   const dialogs: DialogPort = {
     pickFiles: async () => {
-      const res = await dialog.showOpenDialog(
-        mainWindow ?? (undefined as unknown as BrowserWindow),
-        {
-          title: '영상 파일 선택',
-          properties: ['openFile', 'multiSelections'],
-          filters: [VIDEO_FILTER, { name: '모든 파일', extensions: ['*'] }],
-        },
-      );
+      const options: Electron.OpenDialogOptions = {
+        title: '영상 파일 선택',
+        properties: ['openFile', 'multiSelections'],
+        filters: [VIDEO_FILTER, { name: '모든 파일', extensions: ['*'] }],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
       return res.canceled ? null : res.filePaths;
     },
     pickFolder: async () => {
-      const res = await dialog.showOpenDialog(
-        mainWindow ?? (undefined as unknown as BrowserWindow),
-        {
-          title: '영상 폴더 선택',
-          properties: ['openDirectory'],
-        },
-      );
+      const options: Electron.OpenDialogOptions = {
+        title: '영상 폴더 선택',
+        properties: ['openDirectory'],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
       return res.canceled ? null : (res.filePaths[0] ?? null);
     },
     saveLogFile: async (defaultName) => {
-      const res = await dialog.showSaveDialog({
+      const options: Electron.SaveDialogOptions = {
         title: '지원용 로그 내보내기',
         defaultPath: defaultName,
         filters: [{ name: '텍스트', extensions: ['txt'] }],
-      });
+      };
+      const res = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options);
       return res.canceled ? null : res.filePath;
     },
   };
@@ -160,11 +164,15 @@ function createWindow(): void {
   }
 }
 
-/** 앱이 로드하는 주소만 허용한다 (파일 URL 또는 개발 서버 주소) */
+/** 앱 자신의 렌더러 주소만 허용한다 (번들된 index.html 또는 개발 서버). 임의의 file:// 탐색은 막는다. */
 function isAllowedAppUrl(url: string): boolean {
-  if (url.startsWith('file://')) return true;
   const dev = process.env['ELECTRON_RENDERER_URL'];
-  return Boolean(dev && url.startsWith(dev));
+  if (isDev && dev && url.startsWith(dev)) return true;
+  return url.split('#')[0]?.split('?')[0] === rendererFileUrl();
+}
+
+function rendererFileUrl(): string {
+  return pathToFileURL(path.join(__dirname, '../renderer/index.html')).href;
 }
 
 /** 세션 단위 정책: 권한 요청 거부, 외부 리소스 로드 차단(오프라인 원칙) */

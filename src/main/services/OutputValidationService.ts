@@ -39,6 +39,8 @@ export interface ValidateInput {
   ffmpegPath: string;
   ffprobePath: string;
   jobId: string;
+  /** 취소 신호. 디코딩·패킷 계수처럼 오래 걸릴 수 있는 검사를 중단한다. */
+  signal?: AbortSignal;
 }
 
 export function durationTolerance(inputDurationSec: number): number {
@@ -65,7 +67,8 @@ export class OutputValidationService {
 
   async validate(input: ValidateInput): Promise<ValidationReport> {
     const checks: ValidationCheck[] = [];
-    const { settings, analysis, inputProbe, outputPath, ffmpegPath, ffprobePath, jobId } = input;
+    const { settings, analysis, inputProbe, outputPath, ffmpegPath, ffprobePath, jobId, signal } =
+      input;
     const reencoded = settings.mode !== 'copy';
     const primaryIndex = analysis.primaryVideoIndex;
     if (primaryIndex === null) {
@@ -222,8 +225,9 @@ export class OutputValidationService {
             'null',
             '-',
           ],
-          { timeoutMs: 120_000, jobId },
+          { timeoutMs: 120_000, jobId, signal },
         );
+        if (res.cancelled) throw new AppError('CANCELLED');
         const errLines = res.stderrTail.filter((l) => l.trim().length > 0);
         const ok = res.exitCode === 0 && errLines.length === 0 && !res.timedOut;
         checks.push(
@@ -249,8 +253,15 @@ export class OutputValidationService {
         inputProbe.path,
         primaryIndex,
         jobId,
+        signal,
       );
-      const outCount = await this.countVideoPackets(ffprobePath, outputPath, outVideo.index, jobId);
+      const outCount = await this.countVideoPackets(
+        ffprobePath,
+        outputPath,
+        outVideo.index,
+        jobId,
+        signal,
+      );
       if (inCount === null || outCount === null) {
         checks.push({
           id: 'packets',
@@ -297,6 +308,7 @@ export class OutputValidationService {
     file: string,
     streamIndex: number,
     jobId: string,
+    signal?: AbortSignal,
   ): Promise<number | null> {
     const res = await this.proc.run(
       ffprobePath,
@@ -314,8 +326,9 @@ export class OutputValidationService {
         '-i',
         file,
       ],
-      { timeoutMs: 600_000, captureStdout: true, jobId },
+      { timeoutMs: 600_000, captureStdout: true, jobId, signal },
     );
+    if (res.cancelled) throw new AppError('CANCELLED');
     if (res.exitCode !== 0) return null;
     const n = Number.parseInt(res.stdout.trim(), 10);
     return Number.isFinite(n) ? n : null;

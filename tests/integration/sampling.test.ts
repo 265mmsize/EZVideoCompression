@@ -88,3 +88,20 @@ describe('샘플 품질 추천', () => {
     expect(ws.services.queue.get(id).recommendation).toBeNull();
   }, 120_000);
 });
+
+describe('샘플 추천 중 상태 보호', () => {
+  it('추천 계산 중에는 설정 변경·삭제가 거부되고, 취소 후에는 허용된다', async () => {
+    const input = copyFixture(ws, 'h264_sdr.mp4');
+    const id = ws.services.queue.addPaths([input], false).added[0]!.id;
+    await waitForJob(ws, id, (j) => j.status === 'ready' || j.status === 'failed');
+    const pending = ws.services.queue.recommend(id);
+    expect(() => ws.services.queue.updateSettings(id, { codec: 'hevc' })).toThrow(/추천/);
+    expect(() => ws.services.queue.remove(id)).toThrow(/추천/);
+    // 시작 요청은 추천 중인 작업을 건너뛴다
+    ws.services.queue.start([id]);
+    expect(ws.services.queue.get(id).status).toBe('ready');
+    ws.services.queue.cancelRecommend(id);
+    await expect(pending).rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(ws.services.queue.remove(id)).toBe(true);
+  }, 120_000);
+});

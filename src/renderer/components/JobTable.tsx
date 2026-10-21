@@ -126,7 +126,7 @@ function JobRow({
         {expectedText} {estimate}
       </td>
       <td className="w-40 px-3 py-2">
-        {busy || job.status === 'validating' ? (
+        {busy ? (
           <div className="space-y-1">
             <ProgressBar ratio={job.progress.ratio} label={`${job.fileName} 진행률`} />
             <div className="text-xs text-[var(--c-muted)]">

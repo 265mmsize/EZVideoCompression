@@ -1,6 +1,6 @@
 # 제3자 소프트웨어 고지 (Third-Party Notices)
 
-생성일: 2026-10-20 (scripts/gen-licenses.mjs 로 생성, 수동 편집 금지)
+생성일: 2026-10-21 (scripts/gen-licenses.mjs 로 생성, 수동 편집 금지)
 
 ## 1. 런타임 npm 의존성
 

@@ -214,6 +214,7 @@ export class JobRunner {
           ffmpegPath: tools.ffmpeg,
           ffprobePath: tools.ffprobe,
           jobId,
+          signal,
         });
         if (!validation.passed) {
           removeAppTempFile(tempPath);

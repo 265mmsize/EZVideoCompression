@@ -9,7 +9,7 @@
 - [ ] `npm run typecheck`, `npm run lint`, `npm run format:check` 가 통과한다.
 - [ ] `npm test` (단위·통합) 가 통과한다. 통합 테스트는 FFmpeg 가 PATH 에 필요하다.
 - [ ] `npm run test:e2e` (Electron, Linux 에서는 xvfb 사용) 가 통과한다.
-- [ ] `npm run pack:win` 으로 NSIS 설치 파일과 포터블 파일을 만든다. Windows 에서 실행해야 한다 (Linux 에서는 wine 이 필요하다).
+- [ ] `npm run pack:win` 으로 NSIS 설치 파일과 포터블을 만들고 `npm run verify:win` 으로 내용을 검증한다. Windows 에서 실행하거나, Linux 에서는 `wine64`·`wine32:i386` 과 디스플레이(xvfb)가 필요하다.
 
 ## 2. FFmpeg 번들 (GPL v3 — 배포 전 필수 확인)
 

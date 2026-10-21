@@ -67,6 +67,8 @@ export function createServices(opts: ContainerOptions): AppServices {
   const validator = new OutputValidationService(probe, proc);
 
   let status: ToolStatus | null = null;
+  /** 진행 중인 탐지. 탐지가 끝나기 전에 들어온 작업은 이 약속을 기다린다. */
+  let refreshing: Promise<ToolStatus> | null = null;
   const locatorOptions = (): LocatorOptions => {
     const s = settings.get();
     return {
@@ -99,6 +101,9 @@ export function createServices(opts: ContainerOptions): AppServices {
     logger,
     tempRoot,
     tools: requireTools,
+    toolsReady: async () => {
+      if (refreshing) await refreshing.catch(() => undefined);
+    },
     hardwareStatuses: () => status?.hardwareEncoders ?? [],
     emit: opts.emit,
   });
@@ -114,21 +119,32 @@ export function createServices(opts: ContainerOptions): AppServices {
     runner,
     queue,
     toolStatus: () => status,
-    refreshTools: async () => {
-      const located = await locator.locate(locatorOptions());
-      // 하드웨어 검사는 도구가 준비된 경우에만 수행한다 (테스트 인코딩은 실제 ffmpeg 를 실행한다)
-      const hardwareEncoders = located.ffmpeg.path
-        ? await hardware.probeAll(located.ffmpeg.path)
-        : [];
-      status = { ...located, hardwareEncoders };
-      logger.info('tools located', {
-        ffmpeg: status.ffmpeg.path,
-        ffprobe: status.ffprobe.path,
-        ready: status.ready,
-        encoders: status.encoders,
+    refreshTools: () => {
+      const run = async (): Promise<ToolStatus> => {
+        const located = await locator.locate(locatorOptions());
+        // 소프트웨어 도구가 확인되면 즉시 사용 가능하게 하고, 하드웨어 검사(테스트 인코딩)는 그 뒤에 이어서 한다
+        status = { ...located, hardwareEncoders: [] };
+        logger.info('tools located', {
+          ffmpeg: status.ffmpeg.path,
+          ffprobe: status.ffprobe.path,
+          ready: status.ready,
+          encoders: status.encoders,
+        });
+        opts.emit('tools:changed', status);
+        if (located.ffmpeg.path) {
+          const hardwareEncoders = await hardware.probeAll(located.ffmpeg.path);
+          status = { ...located, hardwareEncoders };
+          logger.info('hardware encoders probed', {
+            available: hardwareEncoders.filter((h) => h.available).map((h) => h.name),
+          });
+          opts.emit('tools:changed', status);
+        }
+        return status;
+      };
+      refreshing = run().finally(() => {
+        refreshing = null;
       });
-      opts.emit('tools:changed', status);
-      return status;
+      return refreshing;
     },
     tools: requireTools,
     tempRoot,

@@ -38,7 +38,21 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
+/** 이미 배치된 실행 파일이 고정 해시와 일치하면 다시 내려받지 않는다 */
+function alreadyStaged() {
+  return Object.entries(PIN.members)
+    .filter(([member]) => member.endsWith('.exe'))
+    .every(([, spec]) => {
+      const dest = path.join(OUT_DIR, spec.out);
+      return fs.existsSync(dest) && sha256(dest) === spec.sha256;
+    });
+}
+
 function main() {
+  if (alreadyStaged() && fs.existsSync(path.join(LICENSE_DIR, 'COPYING.GPLv3'))) {
+    console.log('FFmpeg 번들이 이미 준비되어 있습니다 (SHA-256 일치). 다시 내려받지 않습니다.');
+    return;
+  }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vslim-ffmpeg-'));
   try {
     const wheel = path.join(tmp, 'ffmpeg-binaries.whl');

@@ -97,7 +97,8 @@ export function finalizeFile(tempPath: string, finalPath: string): void {
   try {
     // link 는 대상이 있으면 EEXIST 로 실패한다. 원자적이며 덮어쓰지 않는다.
     fs.linkSync(tempPath, finalPath);
-    fs.unlinkSync(tempPath);
+    // 결과는 이미 확정 경로에 있다. 임시 이름 삭제가 실패해도(백신 잠금 등) 호출자의 정리 단계가 다시 지운다.
+    removeAppTempFile(tempPath);
     return;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;

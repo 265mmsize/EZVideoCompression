@@ -58,6 +58,14 @@ interface RawRow {
   finished_at: string | null;
 }
 
+const TERMINAL_STATUSES: readonly JobStatus[] = [
+  'completed',
+  'no_savings',
+  'failed',
+  'cancelled',
+  'interrupted',
+];
+
 const EMPTY_PROGRESS: JobProgress = { ratio: null, speed: null, etaSec: null, outTimeSec: null };
 
 export interface NewJob {
@@ -137,13 +145,20 @@ export class JobRepository {
   }
 
   /** 이력: 완료·실패 등 종료된 작업을 최근순으로 */
+  /** 종료된 작업(완료·크기 증가·실패·취소·중단)만 최근순으로. 진행 중 작업은 작업 목록에서 본다. */
   history(limit: number, offset: number): { items: JobRow[]; total: number } {
-    const total = (this.db.prepare('SELECT COUNT(*) AS n FROM jobs').get() as { n: number }).n;
+    const placeholders = TERMINAL_STATUSES.map(() => '?').join(',');
+    const total = (
+      this.db
+        .prepare(`SELECT COUNT(*) AS n FROM jobs WHERE status IN (${placeholders})`)
+        .get(...TERMINAL_STATUSES) as { n: number }
+    ).n;
     const rows = this.db
       .prepare(
-        'SELECT * FROM jobs ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ? OFFSET ?',
+        `SELECT * FROM jobs WHERE status IN (${placeholders})
+         ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ? OFFSET ?`,
       )
-      .all(limit, offset) as unknown as RawRow[];
+      .all(...TERMINAL_STATUSES, limit, offset) as unknown as RawRow[];
     return { items: rows.map(toRow), total };
   }
 
@@ -243,17 +258,21 @@ export class JobRepository {
       .run(jobId, at, from, to, message);
   }
 
-  /** 같은 설정(코덱·프리셋)으로 끝난 작업들의 평균 실측 속도 (중앙값에 가깝게 최근 값 5개의 평균) */
-  historicalSpeed(codec: string, preset: string): number | null {
+  /**
+   * 같은 설정(모드·코덱·프리셋)으로 끝난 작업들의 평균 실측 속도 (최근 5개 평균).
+   * 모드를 포함하는 이유: 원본 유지(copy)는 수십 배 빠르므로 재인코딩 추정에 섞이면 안 된다.
+   */
+  historicalSpeed(mode: string, codec: string, preset: string): number | null {
     const rows = this.db
       .prepare(
         `SELECT avg_speed FROM jobs
          WHERE status IN ('completed','no_savings') AND avg_speed IS NOT NULL
+           AND json_extract(settings_json, '$.mode') = ?
            AND json_extract(settings_json, '$.codec') = ?
            AND json_extract(settings_json, '$.preset') = ?
          ORDER BY finished_at DESC LIMIT 5`,
       )
-      .all(codec, preset) as { avg_speed: number }[];
+      .all(mode, codec, preset) as { avg_speed: number }[];
     if (rows.length === 0) return null;
     return rows.reduce((a, r) => a + r.avg_speed, 0) / rows.length;
   }

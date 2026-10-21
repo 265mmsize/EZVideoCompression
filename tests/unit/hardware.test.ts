@@ -133,3 +133,11 @@ describe('인코딩 계획의 하드웨어 분기', () => {
     expect(plan.passes[0]).toContain('-crf');
   });
 });
+
+describe('하드웨어 픽셀 포맷', () => {
+  it('10비트는 p010le 로, 8비트는 그대로 둔다 (비트 심도 유지)', async () => {
+    const { hardwarePixFmt } = await import('../../src/main/services/CompressionPolicyService');
+    expect(hardwarePixFmt('yuv420p10le')).toBe('p010le');
+    expect(hardwarePixFmt('yuv420p')).toBe('yuv420p');
+  });
+});

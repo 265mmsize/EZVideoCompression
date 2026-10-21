@@ -1,7 +1,7 @@
 {
   "name": "videoslim-desktop",
   "productName": "VideoSlim Desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "로컬 영상 압축 데스크톱 앱 (FFmpeg 기반, 오프라인 처리)",
   "private": true,
   "main": "out/main/index.js",
@@ -24,7 +24,8 @@
     "pack:dir": "npm run build && electron-builder --dir",
     "pack:win": "npm run fetch:ffmpeg && npm run build && electron-builder --win --x64",
     "pack:linux-dir": "npm run build && electron-builder --linux dir",
-    "fetch:ffmpeg": "node scripts/fetch-ffmpeg-win.mjs"
+    "fetch:ffmpeg": "node scripts/fetch-ffmpeg-win.mjs",
+    "verify:win": "node scripts/verify-win-package.mjs"
   },
   "dependencies": {
     "react": "19.3.1",
@@ -96,7 +97,8 @@
           ]
         }
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false,
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,

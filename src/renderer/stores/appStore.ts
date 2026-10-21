@@ -73,14 +73,7 @@ function upsertJob(job: JobView): void {
 }
 
 export async function initStore(): Promise<void> {
-  const [settings, tools, queue, jobs] = await Promise.all([
-    call('settings:get'),
-    call('tools:status'),
-    call('queue:state'),
-    call('jobs:list'),
-  ]);
-  set({ settings, tools, queue, jobs, ready: true });
-
+  // 초기 조회가 끝나기 전에 도착하는 이벤트를 놓치지 않도록 구독을 먼저 건다. 목록 조회 결과가 최종 기준이다.
   subscribe('job:changed', (job) => {
     upsertJob(job);
     // 대기열 위치가 바뀌었을 수 있으므로 가벼운 전체 갱신을 예약한다
@@ -89,6 +82,14 @@ export async function initStore(): Promise<void> {
   subscribe('job:removed', ({ id }) => set({ jobs: state.jobs.filter((j) => j.id !== id) }));
   subscribe('queue:changed', (queue) => set({ queue }));
   subscribe('tools:changed', (tools) => set({ tools }));
+
+  const [settings, tools, queue, jobs] = await Promise.all([
+    call('settings:get'),
+    call('tools:status'),
+    call('queue:state'),
+    call('jobs:list'),
+  ]);
+  set({ settings, tools, queue, jobs, ready: true });
 }
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;

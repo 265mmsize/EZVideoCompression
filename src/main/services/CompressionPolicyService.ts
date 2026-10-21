@@ -119,6 +119,14 @@ export function outputPixFmt(
   return 'yuv420p';
 }
 
+/**
+ * 하드웨어 인코더용 픽셀 포맷. NVENC·QSV·AMF 는 10비트 입력을 평면 yuv420p10le 가 아니라 p010le 로 받는다.
+ * 비트 심도는 그대로 유지한다 (8비트 → yuv420p, 10비트 → p010le).
+ */
+export function hardwarePixFmt(softwarePixFmt: string): string {
+  return softwarePixFmt === 'yuv420p10le' ? 'p010le' : softwarePixFmt;
+}
+
 export function buildEncodePlan(
   probe: ProbeResult,
   settings: JobSettings,
@@ -246,7 +254,7 @@ export function buildEncodePlan(
       ...common(),
       ...hardwareEncodeArgs(hw.name, hw.family, settings.codec),
       '-pix_fmt',
-      pixFmt,
+      hardwarePixFmt(pixFmt),
       '-fps_mode',
       'passthrough',
       ...tagArgs,

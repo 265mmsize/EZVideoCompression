@@ -168,3 +168,37 @@ describe('순서 변경과 삭제', () => {
     expect(fs.existsSync(files[0]!)).toBe(true);
   }, 120_000);
 });
+
+describe('도구 탐지와 등록 순서', () => {
+  it('탐지가 끝나기 전에 등록한 작업도 탐지 완료 후 정상 분석된다', async () => {
+    const fresh = createWorkspace('vslim-early-');
+    try {
+      const input = copyFixture(fresh, 'no_audio.mp4');
+      const refreshing = fresh.services.refreshTools(); // 아직 끝나지 않은 상태에서 등록한다
+      const id = fresh.services.queue.addPaths([input], false).added[0]!.id;
+      await refreshing;
+      const job = await waitForJob(fresh, id, (j) => j.status === 'ready' || j.status === 'failed');
+      expect(job.status).toBe('ready');
+    } finally {
+      await fresh.cleanup();
+    }
+  }, 120_000);
+
+  it('재시도 후에는 재분석 시점의 파일 상태를 기준으로 하므로 INPUT_CHANGED 가 나지 않는다', async () => {
+    const input = copyFixture(ws, 'no_audio.mp4');
+    const id = ws.services.queue.addPaths([input], false).added[0]!.id;
+    await waitForJob(ws, id, (j) => j.status === 'ready' || j.status === 'failed');
+    ws.services.queue.start([id]);
+    await waitForJob(ws, id, (j) => ['completed', 'no_savings', 'failed'].includes(j.status));
+    // 원본을 다른 내용으로 교체한 뒤 재시도한다 (크기와 수정 시간이 바뀐다)
+    fs.copyFileSync(ws.fixtures['h264_sdr.mp4'], input);
+    ws.services.queue.retry(id);
+    await waitForJob(ws, id, (j) => j.status === 'ready' || j.status === 'failed');
+    ws.services.queue.start([id]);
+    const done = await waitForJob(ws, id, (j) =>
+      ['completed', 'no_savings', 'failed'].includes(j.status),
+    );
+    expect(done.errorCode).not.toBe('INPUT_CHANGED');
+    expect(done.errorDetail).toBeNull();
+  }, 300_000);
+});
