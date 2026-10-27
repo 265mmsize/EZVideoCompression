@@ -87,6 +87,8 @@ scripts/           라이선스 고지 생성
 - [테스트 결과](docs/TEST_REPORT.md)
 - [배포 체크리스트](docs/RELEASE_CHECKLIST.md)
 - [릴리스 노트](docs/RELEASE_NOTES.md)
+- [벤치마크: 미디어 관리·미리보기](docs/BENCHMARK_MEDIA_MANAGEMENT.md)
+- [계획: 미디어 라이브러리](docs/PLAN_MEDIA_LIBRARY.md)
 - [제3자 라이선스 고지](resources/licenses/THIRD_PARTY_NOTICES.md)
 
 ## 기술 선택
