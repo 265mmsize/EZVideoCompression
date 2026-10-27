@@ -282,9 +282,16 @@ export class JobRepository {
 }
 
 function toRow(r: RawRow): JobRow {
-  // crf 는 나중에 추가된 키이므로 이전 행에는 없을 수 있다
-  const parsed = JSON.parse(r.settings_json) as Omit<JobSettings, 'crf'> & { crf?: number | null };
-  const settings: JobSettings = { ...parsed, crf: parsed.crf ?? null };
+  // crf, externalSubtitles 는 나중에 추가된 키이므로 이전 행에는 없을 수 있다
+  const parsed = JSON.parse(r.settings_json) as Omit<JobSettings, 'crf' | 'externalSubtitles'> & {
+    crf?: number | null;
+    externalSubtitles?: boolean;
+  };
+  const settings: JobSettings = {
+    ...parsed,
+    crf: parsed.crf ?? null,
+    externalSubtitles: parsed.externalSubtitles ?? true,
+  };
   const progress = r.progress_json ? (JSON.parse(r.progress_json) as JobProgress) : EMPTY_PROGRESS;
   const probe = r.probe_json ? (JSON.parse(r.probe_json) as ProbeResult) : null;
   const analysis = r.analysis_json ? (JSON.parse(r.analysis_json) as AnalysisResult) : null;

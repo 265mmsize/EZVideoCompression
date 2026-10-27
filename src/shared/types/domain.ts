@@ -105,6 +105,8 @@ export interface JobSettings {
   videoStreamIndex: number | null;
   /** 샘플 추천으로 정한 CRF. null 이면 프리셋 기본값을 쓴다 (고품질·빠른 모드에만 적용) */
   crf: number | null;
+  /** 같은 폴더의 같은 이름 자막 파일(영상.srt, 영상.ko.srt 등)을 결과에 포함할지 여부 */
+  externalSubtitles: boolean;
 }
 
 export interface AppSettings {
@@ -196,6 +198,38 @@ export interface ProbeResult {
   bitRate: MeasuredValue<number>;
   streams: ProbeStream[];
   chapters: ProbeChapter[];
+  /** 분석 시 같은 폴더에서 감지한 외부 자막 파일. 이전 버전 기록에는 없을 수 있다. */
+  externalSubtitles?: DetectedSubtitle[];
+}
+
+// ---------------------------------------------------------------------------
+// 외부 자막 파일
+// ---------------------------------------------------------------------------
+
+export const SUBTITLE_FORMATS = ['srt', 'ass', 'webvtt'] as const;
+export type SubtitleFormat = (typeof SUBTITLE_FORMATS)[number];
+
+/** 자막 파일의 문자 인코딩 판정. 변환은 임시 복사본에만 하고 원본 자막 파일은 수정하지 않는다. */
+export type SubtitleEncoding = 'utf-8' | 'utf-16le' | 'utf-16be' | 'cp949' | 'unknown';
+
+/** 분석 시점에 감지한 외부 자막 파일 (설정과 무관한 사실) */
+export interface DetectedSubtitle {
+  path: string;
+  fileName: string;
+  sizeBytes: number;
+  mtimeMs: number;
+  /** ffprobe 가 확인한 형식. 읽지 못했으면 null 이고 error 에 사유가 있다 */
+  format: SubtitleFormat | null;
+  encoding: SubtitleEncoding;
+  /** 파일명 태그(영상.ko.srt → ko)에서 추정한 ISO 639-2 언어 코드 */
+  language: string | null;
+  error: string | null;
+}
+
+/** 설정(컨테이너, 포함 여부)을 적용한 외부 자막 처리 결정 */
+export interface ExternalSubtitleDecision extends DetectedSubtitle {
+  action: Extract<TrackAction, 'copy' | 'transcode' | 'exclude'>;
+  reason: string;
 }
 
 export type SupportLevel = 'supported' | 'limited' | 'blocked';
@@ -235,6 +269,8 @@ export interface AnalysisResult {
   timeEstimate: { kind: 'history' | 'unknown'; seconds: number | null; note: string };
   /** 목표 용량 모드에서 계산된 영상 비트레이트 (kbps). 해당 없으면 null */
   targetVideoKbps: number | null;
+  /** 외부 자막 파일 처리 결정. 이전 버전 기록에는 없을 수 있다. */
+  externalSubtitles?: ExternalSubtitleDecision[];
 }
 
 // ---------------------------------------------------------------------------

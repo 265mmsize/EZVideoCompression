@@ -27,6 +27,7 @@ services/
   FFmpegProcessService.ts 프로세스 실행 (인자 배열, shell 없음, 진행률 파싱, 취소·타임아웃·멈춤 감지)
   MediaProbeService.ts    ffprobe JSON → ProbeResult (추측값은 unknown/estimated 로 표시)
   CapabilityService.ts    지원/제한/차단 판정, 트랙별 처리 정책, 목표 용량 계산 (순수 함수)
+  ExternalSubtitleService.ts   같은 폴더의 자막 파일 감지(ffprobe 형식 확인, 인코딩 판정)와 인코딩 전 UTF-8 복사본 준비
   CompressionPolicyService.ts  FFmpeg 인자 배열 생성 (CRF, 2-pass, 하드웨어 인코더 분기)
   JobRunner.ts            단일 작업 파이프라인: 입력 확인 → 인코딩 → 검증 → 확정
   OutputValidationService.ts   결과 기본 검증 (존재, 코덱, 해상도, 트랙, 길이, 디코딩, 패킷 수)

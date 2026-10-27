@@ -106,6 +106,7 @@ describe('인코딩 계획의 하드웨어 분기', () => {
     targetMiB: null,
     videoStreamIndex: null,
     crf: null,
+    externalSubtitles: true,
   };
   const opts = {
     inputPath: '/a.mp4',

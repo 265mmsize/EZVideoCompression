@@ -89,5 +89,6 @@ function fastSettings(): JobSettings {
     targetMiB: null,
     videoStreamIndex: null,
     crf: null,
+    externalSubtitles: true,
   };
 }

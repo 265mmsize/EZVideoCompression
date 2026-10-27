@@ -158,8 +158,12 @@ export class OutputValidationService {
     }
 
     // 6) 음성·자막·첨부 트랙 보존
+    const externalSubs = (analysis.externalSubtitles ?? []).filter(
+      (d) => d.action !== 'exclude',
+    ).length;
     const keptOf = (kind: 'audio' | 'subtitle' | 'attachment'): number =>
-      analysis.tracks.filter((t) => t.kind === kind && t.action !== 'exclude').length;
+      analysis.tracks.filter((t) => t.kind === kind && t.action !== 'exclude').length +
+      (kind === 'subtitle' ? externalSubs : 0);
     const countOf = (kind: 'audio' | 'subtitle' | 'attachment'): number =>
       outProbe.streams.filter((s) => s.kind === kind).length;
     for (const kind of ['audio', 'subtitle', 'attachment'] as const) {

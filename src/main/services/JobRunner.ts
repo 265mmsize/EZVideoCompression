@@ -31,6 +31,7 @@ import {
   resolveFinalPath,
   tempOutputPath,
 } from './FileFinalizeService';
+import type { ExternalSubtitleService } from './ExternalSubtitleService';
 import type { FFmpegProcessService } from './FFmpegProcessService';
 import type { Logger } from '../platform/logger';
 import { ProgressEstimator } from './ProgressEstimator';
@@ -95,6 +96,7 @@ export class JobRunner {
     private readonly validator: OutputValidationService,
     private readonly logger: Logger,
     private readonly tools: () => ToolPaths,
+    private readonly subtitles: ExternalSubtitleService,
   ) {}
 
   /** 분석 단계: probe 와 capability 판정 */
@@ -105,6 +107,8 @@ export class JobRunner {
     historicalSpeed: number | null,
   ): Promise<{ probe: ProbeResult; analysis: AnalysisResult }> {
     const probe = await this.probeService.probe(inputPath, jobId);
+    // 같은 폴더의 자막 파일은 설정과 무관한 사실이므로 probe 와 함께 기록한다 (설정 변경 시 재탐색 불필요)
+    probe.externalSubtitles = await this.subtitles.detect(inputPath, jobId);
     const analysis = analyzeCapability(probe, settings, { historicalSpeed });
     return { probe, analysis };
   }
@@ -148,6 +152,8 @@ export class JobRunner {
     ctx.callbacks.onTempOutput(tempPath, tempDir);
 
     try {
+      // 외부 자막: 분석 때와 같은 파일인지 확인하고 UTF-8 복사본을 임시 폴더에 만든다 (원본 자막은 수정하지 않음)
+      const externalSubtitles = this.subtitles.prepare(analysis.externalSubtitles ?? [], tempDir);
       ctx.callbacks.onStatus('encoding');
       ctx.callbacks.onEncoderVersion(tools.version);
 
@@ -170,6 +176,7 @@ export class JobRunner {
           videoKbpsOverride: kbpsOverride,
           hardwareEncoder: hwActive ? ctx.hardwareEncoder : null,
           nullSink: process.platform === 'win32' ? 'NUL' : '/dev/null',
+          externalSubtitles,
         });
         encoderName = hwFallbackNote
           ? `${plan.encoderLabel} · ${hwFallbackNote}`

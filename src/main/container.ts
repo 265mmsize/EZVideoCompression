@@ -10,6 +10,7 @@ import { JobRepository } from './repositories/JobRepository';
 import { SettingsRepository } from './repositories/SettingsRepository';
 import { Logger } from './platform/logger';
 import { AppError } from './services/AppError';
+import { ExternalSubtitleService } from './services/ExternalSubtitleService';
 import { FFmpegProcessService } from './services/FFmpegProcessService';
 import { FFmpegToolLocator, type LocatorOptions } from './services/FFmpegToolLocator';
 import { MediaProbeService } from './services/MediaProbeService';
@@ -100,7 +101,8 @@ export function createServices(opts: ContainerOptions): AppServices {
     };
   };
 
-  const runner = new JobRunner(proc, probe, validator, logger, requireTools);
+  const subtitles = new ExternalSubtitleService(proc, () => requireTools().ffprobe);
+  const runner = new JobRunner(proc, probe, validator, logger, requireTools, subtitles);
   const sampler = new SampleEncodeService(proc);
   const hardware = new HardwareEncoderService(proc);
   const queue = new JobQueueService({

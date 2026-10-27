@@ -14,6 +14,7 @@ import path from 'node:path';
 import { hardwareEncodeArgs } from './HardwareEncoderService';
 import type {
   AnalysisResult,
+  ExternalSubtitleDecision,
   JobSettings,
   Preset,
   ProbeResult,
@@ -74,6 +75,11 @@ export interface EncodePlanOptions {
   nullSink: string;
   /** 설정 미리보기용 입력 구간. 입력 옵션(-ss/-t)으로 넣어 해당 구간만 읽는다. */
   inputTrim?: { startSec: number; durationSec: number } | null;
+  /**
+   * 결과에 합칠 외부 자막 (UTF-8 임시 복사본 경로와 결정). 입력 1, 2, … 로 추가된다.
+   * 설정 미리보기와 샘플 인코딩에서는 넘기지 않는다.
+   */
+  externalSubtitles?: readonly { inputPath: string; decision: ExternalSubtitleDecision }[];
 }
 
 export interface EncodePlan {
@@ -139,7 +145,11 @@ export function buildEncodePlan(
     throw new Error('주 영상 트랙이 없어 인코딩 계획을 만들 수 없습니다');
   }
   const enc = encoderFor(settings);
-  const notes = summarizeNotes(analysis.tracks);
+  const externals = (opts.externalSubtitles ?? []).filter((e) => e.decision.action !== 'exclude');
+  const notes = [
+    ...summarizeNotes(analysis.tracks),
+    ...externals.map((e) => `외부 자막 ${e.decision.fileName}: ${e.decision.reason}`),
+  ];
   const kept = analysis.tracks.filter((t) => t.action !== 'exclude');
 
   const common = (): string[] => {
@@ -161,13 +171,22 @@ export function buildEncodePlan(
       );
     }
     args.push('-i', opts.inputPath);
+    // 외부 자막은 입력 1, 2, … 로 붙인다. 입력 구간(-ss/-t)은 영상 입력에만 적용된다.
+    for (const e of externals) args.push('-i', e.inputPath);
     // 주 영상 + 유지되는 음성·자막·첨부 트랙만 명시적으로 매핑한다. 나머지는 위 분석에서 사유와 함께 제외된 것이다.
     for (const t of kept) args.push('-map', `0:${String(t.streamIndex)}`);
+    externals.forEach((_, i) => args.push('-map', `${String(i + 1)}:0`));
     args.push('-map_chapters', '0');
     return args;
   };
 
-  const trackArgs = (): string[] => trackCodecArgs(kept, settings.container, probe);
+  const trackArgs = (): string[] =>
+    trackCodecArgs(
+      kept,
+      settings.container,
+      probe,
+      externals.map((e) => e.decision),
+    );
   const outputArgs = (): string[] => {
     const out = [...trackArgs()];
     if (settings.container === 'mp4') out.push('-movflags', '+faststart');
@@ -334,6 +353,7 @@ export function trackCodecArgs(
   kept: readonly TrackDecision[],
   container: JobSettings['container'],
   probe: ProbeResult,
+  externalSubtitles: readonly ExternalSubtitleDecision[] = [],
 ): string[] {
   const args: string[] = [];
   const ordinal: Record<'audio' | 'subtitle', number> = { audio: 0, subtitle: 0 };
@@ -354,6 +374,17 @@ export function trackCodecArgs(
         args.push(`-c:s:${String(n)}`, 'copy');
       }
     }
+  }
+  // 외부 자막은 내장 자막 뒤에 매핑되므로 종류별 순서도 그 뒤를 잇는다.
+  for (const d of externalSubtitles) {
+    if (d.action === 'exclude') continue;
+    const n = ordinal.subtitle++;
+    args.push(
+      `-c:s:${String(n)}`,
+      d.action === 'copy' ? 'copy' : container === 'mp4' ? 'mov_text' : 'srt',
+    );
+    if (d.language) args.push(`-metadata:s:s:${String(n)}`, `language=${d.language}`);
+    args.push(`-metadata:s:s:${String(n)}`, `title=${d.fileName}`);
   }
   return args;
 }

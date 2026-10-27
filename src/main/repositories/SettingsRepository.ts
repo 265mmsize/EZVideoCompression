@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     targetMiB: null,
     videoStreamIndex: null,
     crf: null,
+    externalSubtitles: true,
   },
   keepLargerResults: false,
   fastUseHardware: true,

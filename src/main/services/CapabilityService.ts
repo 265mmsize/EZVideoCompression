@@ -17,6 +17,7 @@ import type {
   SupportLevel,
   TrackDecision,
 } from '../../shared/types/domain';
+import { decideExternalSubtitles } from './ExternalSubtitleService';
 
 /** 음성을 복사해도 되는 코덱 (출력 컨테이너별) */
 const AUDIO_COPY_OK: Readonly<Record<JobSettings['container'], readonly string[]>> = {
@@ -350,6 +351,27 @@ export function analyzeCapability(
     limitations.push(...result.limitations);
   }
 
+  // ----- 외부 자막 파일 (같은 폴더의 같은 이름) -----
+  const externalSubtitles = decideExternalSubtitles(probe.externalSubtitles ?? [], settings);
+  const included = externalSubtitles.filter((d) => d.action !== 'exclude');
+  if (included.length > 0) {
+    limitations.push({
+      code: 'EXTERNAL_SUBTITLES_INCLUDED',
+      severity: 'info',
+      message: `외부 자막 파일 ${String(included.length)}개를 결과에 포함합니다 (${included
+        .map((d) => d.fileName)
+        .join(', ')}).`,
+    });
+  }
+  for (const d of externalSubtitles) {
+    if (d.action !== 'exclude' || !settings.externalSubtitles) continue;
+    limitations.push({
+      code: 'EXTERNAL_SUBTITLE_EXCLUDED',
+      severity: 'warning',
+      message: `외부 자막 ${d.fileName}: ${d.reason}`,
+    });
+  }
+
   const support = levelOf(limitations);
   return {
     support,
@@ -359,6 +381,7 @@ export function analyzeCapability(
     expected: expectedOutput(probe, settings),
     timeEstimate: timeEstimate(probe, options.historicalSpeed ?? null),
     targetVideoKbps,
+    externalSubtitles,
   };
 }
 

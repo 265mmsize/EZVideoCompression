@@ -33,6 +33,7 @@ export const jobSettingsSchema = z.object({
   targetMiB: z.number().positive().max(1_000_000).nullable(),
   videoStreamIndex: z.number().int().min(0).max(1000).nullable(),
   crf: z.number().int().min(10).max(40).nullable(),
+  externalSubtitles: z.boolean(),
 });
 
 export const appSettingsSchema = z.object({

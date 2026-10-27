@@ -141,6 +141,40 @@ export function JobDetail({ job, onClose }: { job: JobView; onClose: () => void 
         </Section>
       )}
 
+      {analysis && (
+        <Section title="외부 자막 파일">
+          {(analysis.externalSubtitles ?? []).length === 0 ? (
+            <p className="text-xs text-[var(--c-muted)]">
+              같은 폴더에서 감지된 자막 파일이 없습니다. 영상과 같은 이름의 .srt/.ass/.vtt 파일 (예:
+              영상.srt, 영상.ko.srt)을 찾습니다.
+            </p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {(analysis.externalSubtitles ?? []).map((d) => (
+                <li key={d.path} className="rounded border border-[var(--c-border)] p-2">
+                  <span className="font-medium">{d.fileName}</span>
+                  <span className="ml-2 rounded bg-[var(--c-surface-2)] px-1.5 text-xs">
+                    {actionLabel(d.action)}
+                  </span>
+                  <p className="mt-0.5 text-xs text-[var(--c-muted)]">
+                    {[
+                      d.format ? d.format.toUpperCase() : '형식 불명',
+                      d.encoding === 'unknown' ? '인코딩 불명' : d.encoding.toUpperCase(),
+                      d.language ? `언어 ${d.language}` : '언어 태그 없음',
+                      formatBytes(d.sizeBytes),
+                    ].join(' · ')}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--c-muted)]">{d.reason}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-[var(--c-muted)]">
+            자막 파일은 읽기만 하며 수정하지 않습니다. 결과 파일 안에 트랙으로 들어갑니다.
+          </p>
+        </Section>
+      )}
+
       <Section title="출력 설정">
         <div className="grid grid-cols-2 gap-3 text-sm">
           <label className="col-span-2 flex flex-col gap-1">
@@ -244,6 +278,15 @@ export function JobDetail({ job, onClose }: { job: JobView; onClose: () => void 
               </select>
             </label>
           )}
+          <label className="col-span-2 flex items-center gap-2">
+            <input
+              type="checkbox"
+              disabled={!editable}
+              checked={job.settings.externalSubtitles}
+              onChange={(e) => update({ externalSubtitles: e.target.checked })}
+            />
+            같은 이름의 외부 자막 파일을 결과에 포함
+          </label>
         </div>
         <p className="mt-2 text-xs text-[var(--c-muted)]">
           {job.settings.mode === 'copy'

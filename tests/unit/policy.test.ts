@@ -96,6 +96,7 @@ const S = (over: Partial<JobSettings> = {}): JobSettings => ({
   targetMiB: null,
   videoStreamIndex: null,
   crf: null,
+  externalSubtitles: true,
   ...over,
 });
 

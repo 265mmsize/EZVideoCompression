@@ -156,6 +156,14 @@ export function SettingsPage(): ReactNode {
               ))}
             </select>
           </label>
+          <label className="col-span-2 flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={settings.defaults.externalSubtitles}
+              onChange={(e) => saveDefaults({ externalSubtitles: e.target.checked })}
+            />
+            같은 폴더의 같은 이름 자막 파일(.srt/.ass/.vtt)을 결과에 포함 (작업별로 바꿀 수 있음)
+          </label>
         </div>
       </Group>
 
