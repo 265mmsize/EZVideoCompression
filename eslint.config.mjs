@@ -33,6 +33,14 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
   {
+    // E2E 는 브라우저 안에서 평가되는 콜백을 포함한다. Node 전용 tsconfig 에는 DOM 타입이 없어 unsafe 로 보이므로 그 규칙만 끈다.
+    files: ['tests/e2e/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+    },
+  },
+  {
     // 테스트 코드는 픽스처 값을 단언으로 단정한다. 실패 시 즉시 드러나는 편이 낫다.
     files: ['tests/**/*.ts'],
     rules: {

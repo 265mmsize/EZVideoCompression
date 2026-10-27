@@ -71,6 +71,88 @@ export const MIGRATIONS: readonly Migration[] = [
     description: '샘플 품질 추천 결과 컬럼',
     up: `ALTER TABLE jobs ADD COLUMN recommendation_json TEXT;`,
   },
+  {
+    version: 3,
+    description: '미디어 라이브러리: 등록 폴더, 항목, 메타, 태그, 썸네일·미리보기 캐시',
+    up: `
+      CREATE TABLE library_roots (
+        id                  TEXT PRIMARY KEY,
+        path                TEXT NOT NULL,
+        path_key            TEXT NOT NULL UNIQUE,
+        include_subfolders  INTEGER NOT NULL,
+        added_at            TEXT NOT NULL,
+        last_indexed_at     TEXT
+      );
+
+      CREATE TABLE library_items (
+        id              TEXT PRIMARY KEY,
+        root_id         TEXT NOT NULL REFERENCES library_roots(id) ON DELETE CASCADE,
+        path            TEXT NOT NULL,
+        path_key        TEXT NOT NULL UNIQUE,
+        parent_dir      TEXT NOT NULL,
+        parent_dir_key  TEXT NOT NULL,
+        file_name       TEXT NOT NULL,
+        kind            TEXT NOT NULL,
+        size_bytes      INTEGER NOT NULL,
+        mtime_ms        REAL NOT NULL,
+        width           INTEGER,
+        height          INTEGER,
+        duration_sec    REAL,
+        video_codec     TEXT,
+        audio_codec     TEXT,
+        container       TEXT,
+        probe_json      TEXT,
+        indexed_at      TEXT,
+        missing         INTEGER NOT NULL DEFAULT 0,
+        error_code      TEXT
+      );
+      CREATE INDEX idx_library_items_root ON library_items(root_id);
+      CREATE INDEX idx_library_items_dir ON library_items(parent_dir_key);
+      CREATE INDEX idx_library_items_kind ON library_items(kind);
+      CREATE INDEX idx_library_items_size ON library_items(size_bytes);
+
+      -- 메타는 경로 키 기준으로 보관해 재인덱싱(항목 재생성) 후에도 유지된다
+      CREATE TABLE library_meta (
+        path_key   TEXT PRIMARY KEY,
+        rating     INTEGER NOT NULL DEFAULT 0,
+        label      TEXT,
+        note       TEXT
+      );
+
+      CREATE TABLE library_tags (
+        id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        name  TEXT NOT NULL UNIQUE
+      );
+      CREATE TABLE library_item_tags (
+        path_key  TEXT NOT NULL,
+        tag_id    INTEGER NOT NULL REFERENCES library_tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (path_key, tag_id)
+      );
+
+      CREATE TABLE thumbnails (
+        cache_key     TEXT PRIMARY KEY,
+        file          TEXT NOT NULL,
+        bytes         INTEGER NOT NULL,
+        created_at    TEXT NOT NULL,
+        last_used_at  TEXT NOT NULL
+      );
+
+      CREATE TABLE previews (
+        id             TEXT PRIMARY KEY,
+        kind           TEXT NOT NULL,
+        source_key     TEXT NOT NULL,
+        file           TEXT NOT NULL,
+        bytes          INTEGER NOT NULL,
+        duration_sec   REAL,
+        settings_json  TEXT,
+        start_sec      REAL,
+        note           TEXT NOT NULL,
+        created_at     TEXT NOT NULL,
+        last_used_at   TEXT NOT NULL
+      );
+      CREATE INDEX idx_previews_source ON previews(source_key);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

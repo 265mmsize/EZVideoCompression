@@ -21,6 +21,8 @@ import { toView } from '../repositories/JobRepository';
 export interface DialogPort {
   pickFiles: () => Promise<string[] | null>;
   pickFolder: () => Promise<string | null>;
+  /** 라이브러리 폴더 선택 (pickFolder 와 같은 대화상자, 제목만 다름) */
+  pickLibraryFolder: () => Promise<string | null>;
   saveLogFile: (defaultName: string) => Promise<string | null>;
 }
 
@@ -109,6 +111,47 @@ export function registerIpc(deps: IpcDeps): void {
       s.logger.exportTo(target, maskPaths);
       return { path: target };
     },
+
+    // ----- 미디어 라이브러리 -----
+    'library:roots.list': () => s.library.listRoots(),
+    'library:roots.add': async ({ includeSubfolders }) => {
+      const dir = await dialogs.pickLibraryFolder();
+      return dir ? s.library.addRoot(dir, includeSubfolders) : null;
+    },
+    'library:roots.addPath': ({ path: dir, includeSubfolders }) =>
+      s.library.addRoot(dir, includeSubfolders),
+    'library:roots.remove': ({ id }) => ({ removed: s.library.removeRoot(id) }),
+    'library:roots.reindex': ({ id }) => s.library.reindex(id),
+    'library:indexing.state': () => s.indexer.getState(),
+    'library:indexing.cancel': () => s.indexer.cancel(),
+    'library:tree': ({ rootId }) => s.library.tree(rootId),
+    'library:items.query': (q) => s.library.query(q),
+    'library:item.get': ({ id }) => s.library.get(id),
+    'library:meta.set': ({ id, rating, label, note }) =>
+      s.library.setMeta(id, { rating, label, note }),
+    'library:tags.list': () => s.library.listTags(),
+    'library:tags.set': ({ id, tags }) => s.library.setTags(id, tags),
+    'library:thumb': async ({ id }) => {
+      const url = await s.library.thumbUrl(id);
+      return url ? { url } : null;
+    },
+    'library:scrub': ({ id }) => s.library.scrubUrls(id),
+    'library:source': ({ ref }) => s.previews.source(ref),
+    'library:frame': ({ ref, timeSec }) => s.previews.frame(ref, timeSec),
+    'library:proxy.create': async ({ id }) => ({ previewId: await s.previews.createProxy(id) }),
+    'library:settingsPreview.create': ({ jobId, startSec, durationSec }) => ({
+      previewId: s.previews.createSettingsPreview(jobId, startSec, durationSec),
+    }),
+    'library:preview.cancel': ({ previewId }) => ({ cancelled: s.previews.cancel(previewId) }),
+    'library:previews.list': ({ sourceKey }) => s.previews.list(sourceKey),
+    'library:preview.remove': ({ previewId }) => ({ removed: s.previews.remove(previewId) }),
+    'library:enqueue': ({ ids }) => s.library.enqueue(ids),
+    'library:duplicates': () => s.library.duplicates(),
+    'library:duplicates.verify': async ({ ids }) => ({
+      hashes: await s.library.verifyDuplicates(ids),
+    }),
+    'library:cache.stats': () => s.library.cacheStats(),
+    'library:cache.clear': () => s.library.clearCache(),
   };
 
   for (const channel of CHANNEL_NAMES.invoke) {

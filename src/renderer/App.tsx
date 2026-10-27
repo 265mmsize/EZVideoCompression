@@ -4,13 +4,15 @@ import { ComparePage } from './pages/ComparePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { JobsPage } from './pages/JobsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { LibraryPage } from './library/LibraryPage';
 import { Button } from './components/ui';
 import { recheckTools } from './actions';
 import { errorText, notify, initStore } from './stores/appStore';
 
-type Tab = 'jobs' | 'compare' | 'history' | 'settings';
+type Tab = 'library' | 'jobs' | 'compare' | 'history' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'library', label: '라이브러리' },
   { id: 'jobs', label: '작업 목록' },
   { id: 'compare', label: '비교' },
   { id: 'history', label: '이력' },
@@ -19,6 +21,11 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function App(): ReactNode {
   const [tab, setTab] = useState<Tab>('jobs');
+  const [compareJobId, setCompareJobId] = useState<string | null>(null);
+  const openCompare = (jobId: string): void => {
+    setCompareJobId(jobId);
+    setTab('compare');
+  };
   const { ready, tools, settings, notice } = useAppStore();
 
   useEffect(() => {
@@ -84,10 +91,12 @@ export function App(): ReactNode {
       <main className="min-h-0 flex-1 overflow-auto">
         {!ready ? (
           <div className="p-6 text-[var(--c-muted)]">불러오는 중…</div>
+        ) : tab === 'library' ? (
+          <LibraryPage onCompare={openCompare} />
         ) : tab === 'jobs' ? (
           <JobsPage />
         ) : tab === 'compare' ? (
-          <ComparePage />
+          <ComparePage key={compareJobId ?? 'none'} initialJobId={compareJobId} />
         ) : tab === 'history' ? (
           <HistoryPage />
         ) : (

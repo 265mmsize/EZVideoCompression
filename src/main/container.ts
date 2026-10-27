@@ -18,6 +18,12 @@ import { JobRunner, type ToolPaths } from './services/JobRunner';
 import { SampleEncodeService } from './services/SampleEncodeService';
 import { HardwareEncoderService } from './services/HardwareEncoderService';
 import { JobQueueService } from './services/JobQueueService';
+import { LibraryRepository } from './repositories/LibraryRepository';
+import { LibraryIndexer } from './services/library/LibraryIndexer';
+import { LibraryService } from './services/library/LibraryService';
+import { MediaTokenRegistry } from './services/library/MediaTokenRegistry';
+import { PreviewService } from './services/library/PreviewService';
+import { ThumbnailService } from './services/library/ThumbnailService';
 import type { EventChannel } from '../shared/contracts/ipc';
 
 export interface ContainerOptions {
@@ -43,6 +49,10 @@ export interface AppServices {
   probe: MediaProbeService;
   runner: JobRunner;
   queue: JobQueueService;
+  library: LibraryService;
+  indexer: LibraryIndexer;
+  previews: PreviewService;
+  tokens: MediaTokenRegistry;
   /** 마지막 탐지 결과 */
   toolStatus: () => ToolStatus | null;
   /** 도구를 다시 탐지하고 결과를 캐시한다 */
@@ -108,6 +118,54 @@ export function createServices(opts: ContainerOptions): AppServices {
     emit: opts.emit,
   });
 
+  // ----- 미디어 라이브러리 -----
+  const toolsReady = async (): Promise<void> => {
+    if (refreshing) await refreshing.catch(() => undefined);
+  };
+  const libraryRepo = new LibraryRepository(db);
+  const tokens = new MediaTokenRegistry();
+  const limitBytes = (): number => settings.get().cacheLimitMiB * 1024 * 1024;
+  const thumbs = new ThumbnailService({
+    repo: libraryRepo,
+    proc,
+    tools: requireTools,
+    dir: path.join(opts.userDataDir, 'thumbs'),
+    logger,
+    limitBytes,
+    // 인코딩 중에는 썸네일 생성을 1개로 제한해 인코딩을 방해하지 않는다
+    concurrency: () => (queue.queueState().runningJobId ? 1 : 2),
+  });
+  const indexer = new LibraryIndexer({
+    repo: libraryRepo,
+    probe,
+    logger,
+    emit: (state) => opts.emit('library:indexing', state),
+    toolsReady,
+  });
+  const previews = new PreviewService({
+    repo: libraryRepo,
+    jobs,
+    probe,
+    proc,
+    tools: requireTools,
+    thumbs,
+    tokens,
+    dir: path.join(opts.userDataDir, 'previews'),
+    tempRoot,
+    logger,
+    emit: (p) => opts.emit('library:preview.progress', p),
+  });
+  const library = new LibraryService({
+    repo: libraryRepo,
+    indexer,
+    queue,
+    thumbs,
+    previews,
+    tokens,
+    logger,
+    limitBytes,
+  });
+
   return {
     db,
     logger,
@@ -118,6 +176,10 @@ export function createServices(opts: ContainerOptions): AppServices {
     probe,
     runner,
     queue,
+    library,
+    indexer,
+    previews,
+    tokens,
     toolStatus: () => status,
     refreshTools: () => {
       const run = async (): Promise<ToolStatus> => {
@@ -150,7 +212,10 @@ export function createServices(opts: ContainerOptions): AppServices {
     tempRoot,
     logsDir,
     close: async () => {
+      indexer.cancel();
+      previews.shutdown();
       await queue.shutdown();
+      await indexer.idle();
       await proc.terminateAll();
       db.close();
     },

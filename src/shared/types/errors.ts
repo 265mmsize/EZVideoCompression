@@ -26,6 +26,9 @@ export const ERROR_CODES = [
   'CANCELLED',
   'INTERRUPTED',
   'SAMPLE_TIMEOUT',
+  'LIBRARY_ROOT_INVALID',
+  'MEDIA_NOT_FOUND',
+  'PREVIEW_FAILED',
   'UNKNOWN',
 ] as const;
 
@@ -141,6 +144,21 @@ export const ERROR_CATALOG: Readonly<Record<ErrorCode, ErrorInfo>> = {
     title: '샘플 품질 추천 시간이 초과되었습니다',
     cause: '샘플 구간 인코딩과 측정이 제한 시간(2분)을 넘었습니다.',
     action: '추천 없이 기본 설정으로 진행하거나 다시 시도하세요.',
+  },
+  LIBRARY_ROOT_INVALID: {
+    title: '폴더를 등록할 수 없습니다',
+    cause: '경로가 폴더가 아니거나, 이미 등록된 폴더 안에 있거나, 읽을 수 없습니다.',
+    action: '다른 폴더를 선택하거나 기존 등록을 먼저 해제하세요.',
+  },
+  MEDIA_NOT_FOUND: {
+    title: '미디어 항목을 찾을 수 없습니다',
+    cause: '라이브러리에서 제거되었거나 파일이 이동·삭제되었습니다.',
+    action: '폴더를 다시 인덱싱하거나 목록을 새로 고치세요.',
+  },
+  PREVIEW_FAILED: {
+    title: '미리보기를 만들지 못했습니다',
+    cause: 'FFmpeg 가 프레임 추출 또는 변환본 생성에 실패했습니다.',
+    action: '상세 로그를 확인하세요. 원본 파일은 변경되지 않았습니다.',
   },
   UNKNOWN: {
     title: '알 수 없는 오류가 발생했습니다',

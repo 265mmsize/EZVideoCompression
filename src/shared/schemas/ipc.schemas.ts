@@ -5,7 +5,15 @@
  * 렌더러는 신뢰할 수 없는 영역이므로 타입 선언만으로는 충분하지 않다.
  */
 import { z } from 'zod';
-import { COMPRESSION_MODES, OUTPUT_CONTAINERS, PRESETS, VIDEO_CODECS } from '../types/domain';
+import {
+  COMPRESSION_MODES,
+  LIBRARY_SORTS,
+  MEDIA_KINDS,
+  MEDIA_LABELS,
+  OUTPUT_CONTAINERS,
+  PRESETS,
+  VIDEO_CODECS,
+} from '../types/domain';
 import type { InvokeChannel } from '../contracts/ipc';
 
 const absolutePath = z
@@ -43,6 +51,29 @@ export const appSettingsSchema = z.object({
     .max(40)
     // 파일명에 쓸 수 없는 문자와 경로 구분자를 금지한다.
     .regex(/^[^\\/:*?"<>|\0]+$/, '접미사에 사용할 수 없는 문자가 있습니다'),
+  cacheLimitMiB: z.number().int().min(100).max(1_000_000),
+});
+
+const mediaRefSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('item'), id: idSchema }),
+  z.object({ kind: z.literal('job'), jobId: idSchema, side: z.enum(['input', 'output']) }),
+  z.object({ kind: z.literal('preview'), id: idSchema }),
+]);
+
+export const libraryQuerySchema = z.object({
+  rootId: idSchema.nullable(),
+  dir: absolutePath.nullable(),
+  kinds: z.array(z.enum(MEDIA_KINDS)).max(3),
+  search: z.string().max(200),
+  minRating: z.number().int().min(0).max(5),
+  label: z.enum(MEDIA_LABELS).nullable(),
+  tags: z.array(z.string().min(1).max(60)).max(50),
+  compressed: z.enum(['any', 'yes', 'no']),
+  includeMissing: z.boolean(),
+  sort: z.enum(LIBRARY_SORTS),
+  order: z.enum(['asc', 'desc']),
+  limit: z.number().int().min(1).max(1000),
+  offset: z.number().int().min(0),
 });
 
 const voidSchema = z.undefined().or(z.null()).optional();
@@ -78,4 +109,40 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   }),
   'shell:showInFolder': z.object({ path: absolutePath }),
   'logs:export': z.object({ maskPaths: z.boolean() }),
+  'library:roots.list': voidSchema,
+  'library:roots.add': z.object({ includeSubfolders: z.boolean() }),
+  'library:roots.addPath': z.object({ path: absolutePath, includeSubfolders: z.boolean() }),
+  'library:roots.remove': z.object({ id: idSchema }),
+  'library:roots.reindex': z.object({ id: idSchema }),
+  'library:indexing.state': voidSchema,
+  'library:indexing.cancel': voidSchema,
+  'library:tree': z.object({ rootId: idSchema }),
+  'library:items.query': libraryQuerySchema,
+  'library:item.get': z.object({ id: idSchema }),
+  'library:meta.set': z.object({
+    id: idSchema,
+    rating: z.number().int().min(0).max(5).optional(),
+    label: z.enum(MEDIA_LABELS).nullable().optional(),
+    note: z.string().max(2000).nullable().optional(),
+  }),
+  'library:tags.list': voidSchema,
+  'library:tags.set': z.object({ id: idSchema, tags: z.array(z.string().min(1).max(60)).max(50) }),
+  'library:thumb': z.object({ id: idSchema }),
+  'library:scrub': z.object({ id: idSchema }),
+  'library:source': z.object({ ref: mediaRefSchema }),
+  'library:frame': z.object({ ref: mediaRefSchema, timeSec: z.number().min(0).max(1_000_000) }),
+  'library:proxy.create': z.object({ id: idSchema }),
+  'library:settingsPreview.create': z.object({
+    jobId: idSchema,
+    startSec: z.number().min(0).max(1_000_000),
+    durationSec: z.number().min(1).max(60),
+  }),
+  'library:preview.cancel': z.object({ previewId: idSchema }),
+  'library:previews.list': z.object({ sourceKey: z.string().min(1).max(200) }),
+  'library:preview.remove': z.object({ previewId: idSchema }),
+  'library:enqueue': z.object({ ids: z.array(idSchema).max(5000) }),
+  'library:duplicates': voidSchema,
+  'library:duplicates.verify': z.object({ ids: z.array(idSchema).min(2).max(200) }),
+  'library:cache.stats': voidSchema,
+  'library:cache.clear': voidSchema,
 };

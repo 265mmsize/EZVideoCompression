@@ -181,11 +181,14 @@ export class JobRepository {
     return row ? toRow(row) : null;
   }
 
-  /** 입력 또는 출력 경로로 기록된 작업이 있는지 */
+  /** 작업의 입력·출력 경로 또는 라이브러리 항목으로 기록된 경로인지 (탐색기 열기 허용 목록) */
   hasPath(path: string): boolean {
     const row = this.db
-      .prepare('SELECT 1 AS hit FROM jobs WHERE input_path = ? OR output_path = ? LIMIT 1')
-      .get(path, path);
+      .prepare(
+        `SELECT 1 AS hit FROM jobs WHERE input_path = ? OR output_path = ?
+         UNION ALL SELECT 1 FROM library_items WHERE path = ? LIMIT 1`,
+      )
+      .get(path, path, path);
     return row !== undefined;
   }
 

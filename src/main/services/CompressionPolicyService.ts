@@ -72,6 +72,8 @@ export interface EncodePlanOptions {
   videoKbpsOverride?: number | null;
   /** 1-pass 에서 -f null 로 버릴 출력 장치 (플랫폼별) */
   nullSink: string;
+  /** 설정 미리보기용 입력 구간. 입력 옵션(-ss/-t)으로 넣어 해당 구간만 읽는다. */
+  inputTrim?: { startSec: number; durationSec: number } | null;
 }
 
 export interface EncodePlan {
@@ -149,9 +151,16 @@ export function buildEncodePlan(
       '-nostats',
       '-progress',
       'pipe:1',
-      '-i',
-      opts.inputPath,
     ];
+    if (opts.inputTrim) {
+      args.push(
+        '-ss',
+        opts.inputTrim.startSec.toFixed(3),
+        '-t',
+        opts.inputTrim.durationSec.toFixed(3),
+      );
+    }
+    args.push('-i', opts.inputPath);
     // 주 영상 + 유지되는 음성·자막·첨부 트랙만 명시적으로 매핑한다. 나머지는 위 분석에서 사유와 함께 제외된 것이다.
     for (const t of kept) args.push('-map', `0:${String(t.streamIndex)}`);
     args.push('-map_chapters', '0');

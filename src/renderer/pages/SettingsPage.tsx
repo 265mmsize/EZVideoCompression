@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { AppSettings, JobSettings } from '../../shared/types/domain';
 import {
   COMPRESSION_MODES,
@@ -10,6 +10,9 @@ import { MODE_LABELS } from '../../shared/contracts/ipc';
 import { useAppStore } from '../hooks/useAppStore';
 import { exportLogs, recheckTools, saveAppSettings } from '../actions';
 import { Button } from '../components/ui';
+import { libraryApi } from '../library/libraryActions';
+import { formatBytes } from '../format';
+import type { CacheStats } from '../../shared/types/domain';
 
 export function SettingsPage(): ReactNode {
   const { settings, tools } = useAppStore();
@@ -200,6 +203,13 @@ export function SettingsPage(): ReactNode {
         )}
       </Group>
 
+      <Group title="라이브러리 캐시">
+        <CacheSection
+          limitMiB={settings.cacheLimitMiB}
+          onLimit={(v) => save({ cacheLimitMiB: v })}
+        />
+      </Group>
+
       <Group title="지원용 로그">
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -273,5 +283,50 @@ function PathField({
         <Button onClick={() => onSave(text.trim())}>저장</Button>
       </div>
     </label>
+  );
+}
+
+function CacheSection({
+  limitMiB,
+  onLimit,
+}: {
+  limitMiB: number;
+  onLimit: (v: number) => void;
+}): ReactNode {
+  const [stats, setStats] = useState<CacheStats | null>(null);
+  const [limitText, setLimitText] = useState(String(limitMiB));
+  useEffect(() => {
+    void libraryApi.cacheStats().then((s) => setStats(s ?? null));
+  }, []);
+  return (
+    <div className="space-y-2 text-sm">
+      <p>
+        썸네일 {stats ? `${String(stats.thumbCount)}개, ${formatBytes(stats.thumbBytes)}` : '…'} ·
+        미리보기 변환본{' '}
+        {stats ? `${String(stats.previewCount)}개, ${formatBytes(stats.previewBytes)}` : '…'}
+      </p>
+      <label className="flex items-center gap-2">
+        썸네일 캐시 상한 (MB)
+        <input
+          type="number"
+          min={100}
+          step={100}
+          className="w-28 rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-1.5"
+          value={limitText}
+          onChange={(e) => setLimitText(e.target.value)}
+        />
+        <Button
+          onClick={() => {
+            const n = Number(limitText);
+            if (Number.isFinite(n) && n >= 100) onLimit(Math.floor(n));
+          }}
+        >
+          저장
+        </Button>
+      </label>
+      <Button onClick={() => void libraryApi.clearCache().then((s) => setStats(s ?? null))}>
+        캐시 비우기 (원본은 건드리지 않음)
+      </Button>
+    </div>
   );
 }

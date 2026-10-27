@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   outputFolderMode: 'same',
   customOutputDir: null,
   outputSuffix: '-slim',
+  cacheLimitMiB: 2048,
 };
 
 const KEY = 'app';

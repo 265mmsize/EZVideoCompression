@@ -6,7 +6,14 @@
  */
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { app, BrowserWindow, dialog, session, shell, type FileFilter } from 'electron';
+import { Readable } from 'node:stream';
+import fs from 'node:fs';
+import { app, BrowserWindow, dialog, protocol, session, shell, type FileFilter } from 'electron';
+import {
+  MEDIA_SCHEME,
+  planMediaResponse,
+  tokenFromUrl,
+} from './services/library/MediaTokenRegistry';
 import { createServices, type AppServices } from './container';
 import { registerIpc, type DialogPort } from './ipc/registerIpc';
 import { CHANNEL_NAMES, type EventChannel } from '../shared/contracts/ipc';
@@ -35,6 +42,21 @@ const VIDEO_FILTER: FileFilter = {
     'ogv',
   ],
 };
+
+// 미디어 전용 프로토콜. app.whenReady() 전에 등록해야 한다.
+// stream: true 가 있어야 <video> 의 Range 요청(탐색)이 동작한다. 외부 네트워크 접근과는 무관하다.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: MEDIA_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: true,
+      bypassCSP: false,
+    },
+  },
+]);
 
 // 단일 인스턴스: 두 번째 실행은 기존 창을 앞으로 가져오고 종료한다 (DB 동시 접근 방지)
 if (!app.requestSingleInstanceLock()) {
@@ -93,6 +115,16 @@ function bootstrap(): void {
         : await dialog.showOpenDialog(options);
       return res.canceled ? null : (res.filePaths[0] ?? null);
     },
+    pickLibraryFolder: async () => {
+      const options: Electron.OpenDialogOptions = {
+        title: '라이브러리에 등록할 폴더 선택',
+        properties: ['openDirectory'],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return res.canceled ? null : (res.filePaths[0] ?? null);
+    },
     saveLogFile: async (defaultName) => {
       const options: Electron.SaveDialogOptions = {
         title: '지원용 로그 내보내기',
@@ -119,7 +151,38 @@ function bootstrap(): void {
   void services.refreshTools();
 
   installSecurityPolicy();
+  installMediaProtocol(services);
   createWindow();
+}
+
+/**
+ * vslim-media://file/<토큰> 을 실제 파일로 제공한다.
+ * 토큰 레지스트리에 없는 요청은 404 다. 경로는 URL 에 실리지 않는다.
+ */
+function installMediaProtocol(s: AppServices): void {
+  protocol.handle(MEDIA_SCHEME, (request) => {
+    const token = tokenFromUrl(request.url);
+    const entry = token ? s.tokens.resolve(token) : null;
+    if (!entry) return new Response('not found', { status: 404 });
+    let size: number;
+    try {
+      size = fs.statSync(entry.path).size;
+    } catch {
+      return new Response('gone', { status: 404 });
+    }
+    const plan = planMediaResponse(request.headers.get('range'), size, entry.mime);
+    if (plan.status === 416) return new Response(null, { status: 416, headers: plan.headers });
+    if (request.method === 'HEAD')
+      return new Response(null, { status: plan.status, headers: plan.headers });
+    const stream = fs.createReadStream(
+      entry.path,
+      plan.range ? { start: plan.range.start, end: plan.range.end } : {},
+    );
+    return new Response(Readable.toWeb(stream) as ReadableStream, {
+      status: plan.status,
+      headers: plan.headers,
+    });
+  });
 }
 
 function createWindow(): void {
@@ -183,6 +246,7 @@ function installSecurityPolicy(): void {
   ses.webRequest.onBeforeRequest((details, callback) => {
     const ok =
       details.url.startsWith('file://') ||
+      details.url.startsWith(`${MEDIA_SCHEME}://`) ||
       details.url.startsWith('devtools://') ||
       (process.env['ELECTRON_RENDERER_URL'] !== undefined &&
         details.url.startsWith(process.env['ELECTRON_RENDERER_URL']));

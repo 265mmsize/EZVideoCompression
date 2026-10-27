@@ -8,9 +8,21 @@
 import type {
   AddResult,
   AppSettings,
+  CacheStats,
   CompressionMode,
+  DuplicateGroup,
+  IndexingState,
   JobSettings,
   JobView,
+  LibraryItem,
+  LibraryQuery,
+  LibraryRoot,
+  LibraryTreeNode,
+  MediaLabel,
+  MediaRef,
+  MediaSource,
+  PreviewAsset,
+  PreviewProgress,
   QueueState,
   ToolStatus,
 } from '../types/domain';
@@ -75,6 +87,66 @@ export interface InvokeContract {
     request: { maskPaths: boolean };
     response: { path: string } | null;
   };
+
+  // ----- 미디어 라이브러리 -----
+  'library:roots.list': { request: void; response: LibraryRoot[] };
+  /** 폴더 선택 대화상자를 열어 등록한다. 취소 시 null */
+  'library:roots.add': { request: { includeSubfolders: boolean }; response: LibraryRoot | null };
+  'library:roots.addPath': {
+    request: { path: string; includeSubfolders: boolean };
+    response: LibraryRoot;
+  };
+  /** 등록 해제. 파일은 건드리지 않고 항목·메타·캐시 기록만 지운다 */
+  'library:roots.remove': { request: { id: string }; response: { removed: boolean } };
+  'library:roots.reindex': { request: { id: string }; response: IndexingState };
+  'library:indexing.state': { request: void; response: IndexingState };
+  'library:indexing.cancel': { request: void; response: IndexingState };
+  'library:tree': { request: { rootId: string }; response: LibraryTreeNode };
+  'library:items.query': {
+    request: LibraryQuery;
+    response: { items: LibraryItem[]; total: number };
+  };
+  'library:item.get': { request: { id: string }; response: LibraryItem };
+  'library:meta.set': {
+    request: { id: string; rating?: number; label?: MediaLabel | null; note?: string | null };
+    response: LibraryItem;
+  };
+  'library:tags.list': { request: void; response: { name: string; count: number }[] };
+  'library:tags.set': { request: { id: string; tags: string[] }; response: LibraryItem };
+  /** 썸네일 URL. 없으면 만들고(수 초 걸릴 수 있음), 만들 수 없으면 null */
+  'library:thumb': { request: { id: string }; response: { url: string } | null };
+  /** 영상 스크럽용 시점별 썸네일 URL 목록 (시간 순) */
+  'library:scrub': {
+    request: { id: string };
+    response: { urls: string[]; timesSec: number[] };
+  };
+  /** 재생·표시용 소스 (전용 프로토콜 URL 과 재생 가능성 판정) */
+  'library:source': { request: { ref: MediaRef }; response: MediaSource };
+  /** 지정 시점 프레임(JPEG) URL */
+  'library:frame': {
+    request: { ref: MediaRef; timeSec: number };
+    response: { url: string; timeSec: number };
+  };
+  /** 미리보기 프록시 생성 시작. 진행은 library:preview.progress 이벤트 */
+  'library:proxy.create': { request: { id: string }; response: { previewId: string } };
+  /** 현재 작업 설정으로 구간을 실제 인코딩하는 설정 미리보기 */
+  'library:settingsPreview.create': {
+    request: { jobId: string; startSec: number; durationSec: number };
+    response: { previewId: string };
+  };
+  'library:preview.cancel': { request: { previewId: string }; response: { cancelled: boolean } };
+  'library:previews.list': { request: { sourceKey: string }; response: PreviewAsset[] };
+  'library:preview.remove': { request: { previewId: string }; response: { removed: boolean } };
+  /** 선택 항목을 압축 대기열(작업 목록)에 추가 */
+  'library:enqueue': { request: { ids: string[] }; response: AddResult };
+  'library:duplicates': { request: void; response: DuplicateGroup[] };
+  /** 그룹 항목의 SHA-256 을 계산해 동일 파일을 확정 */
+  'library:duplicates.verify': {
+    request: { ids: string[] };
+    response: { hashes: Record<string, string> };
+  };
+  'library:cache.stats': { request: void; response: CacheStats };
+  'library:cache.clear': { request: void; response: CacheStats };
 }
 
 /** 메인 → 렌더러 푸시 이벤트 */
@@ -83,6 +155,9 @@ export interface EventContract {
   'job:removed': { id: string };
   'queue:changed': QueueState;
   'tools:changed': ToolStatus;
+  'library:indexing': IndexingState;
+  'library:item.changed': LibraryItem;
+  'library:preview.progress': PreviewProgress;
 }
 
 export type InvokeChannel = keyof InvokeContract;
@@ -128,8 +203,43 @@ export const CHANNEL_NAMES = {
     'history:list',
     'shell:showInFolder',
     'logs:export',
+    'library:roots.list',
+    'library:roots.add',
+    'library:roots.addPath',
+    'library:roots.remove',
+    'library:roots.reindex',
+    'library:indexing.state',
+    'library:indexing.cancel',
+    'library:tree',
+    'library:items.query',
+    'library:item.get',
+    'library:meta.set',
+    'library:tags.list',
+    'library:tags.set',
+    'library:thumb',
+    'library:scrub',
+    'library:source',
+    'library:frame',
+    'library:proxy.create',
+    'library:settingsPreview.create',
+    'library:preview.cancel',
+    'library:previews.list',
+    'library:preview.remove',
+    'library:enqueue',
+    'library:duplicates',
+    'library:duplicates.verify',
+    'library:cache.stats',
+    'library:cache.clear',
   ] satisfies InvokeChannel[],
-  events: ['job:changed', 'job:removed', 'queue:changed', 'tools:changed'] satisfies EventChannel[],
+  events: [
+    'job:changed',
+    'job:removed',
+    'queue:changed',
+    'tools:changed',
+    'library:indexing',
+    'library:item.changed',
+    'library:preview.progress',
+  ] satisfies EventChannel[],
 } as const;
 
 /** 메뉴·테스트 등에서 참조하기 위한 모드 표시 이름 */

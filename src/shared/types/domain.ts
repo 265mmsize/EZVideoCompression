@@ -123,6 +123,8 @@ export interface AppSettings {
   customOutputDir: string | null;
   /** 출력 파일명 접미사 (예: "-slim") */
   outputSuffix: string;
+  /** 썸네일·미리보기 캐시 상한 (MiB) */
+  cacheLimitMiB: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -358,4 +360,168 @@ export interface SkippedInput {
 export interface AddResult {
   added: JobView[];
   skipped: SkippedInput[];
+}
+
+// ---------------------------------------------------------------------------
+// 미디어 라이브러리 (L1~L5)
+// ---------------------------------------------------------------------------
+
+export const MEDIA_KINDS = ['video', 'image', 'other'] as const;
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+
+/** 색상 라벨. 파일에는 쓰지 않고 앱 DB 에만 저장한다. */
+export const MEDIA_LABELS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const;
+export type MediaLabel = (typeof MEDIA_LABELS)[number];
+
+export interface LibraryRoot {
+  id: string;
+  path: string;
+  includeSubfolders: boolean;
+  addedAt: string;
+  lastIndexedAt: string | null;
+  itemCount: number;
+}
+
+/** 라이브러리 항목과 연결된 압축 작업 요약 (같은 입력 경로의 가장 최근 작업) */
+export interface CompressionLink {
+  jobId: string;
+  status: JobStatus;
+  outputPath: string | null;
+  outputSizeBytes: number | null;
+  savingsRatio: number | null;
+}
+
+export interface LibraryItem {
+  id: string;
+  rootId: string;
+  path: string;
+  fileName: string;
+  /** 부모 폴더 경로 */
+  parentDir: string;
+  kind: MediaKind;
+  sizeBytes: number;
+  mtimeMs: number;
+  width: number | null;
+  height: number | null;
+  durationSec: number | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
+  container: string | null;
+  indexedAt: string | null;
+  /** 마지막 인덱싱에서 파일을 찾지 못함 */
+  missing: boolean;
+  errorCode: string | null;
+  rating: number;
+  label: MediaLabel | null;
+  note: string | null;
+  tags: string[];
+  compression: CompressionLink | null;
+}
+
+export const LIBRARY_SORTS = ['name', 'date', 'size', 'duration', 'rating'] as const;
+export type LibrarySort = (typeof LIBRARY_SORTS)[number];
+
+export interface LibraryQuery {
+  rootId: string | null;
+  /** 이 폴더(와 하위 폴더) 안의 항목만 */
+  dir: string | null;
+  kinds: MediaKind[];
+  search: string;
+  minRating: number;
+  label: MediaLabel | null;
+  tags: string[];
+  /** any: 모두, yes: 압축 작업이 있음, no: 없음 */
+  compressed: 'any' | 'yes' | 'no';
+  includeMissing: boolean;
+  sort: LibrarySort;
+  order: 'asc' | 'desc';
+  limit: number;
+  offset: number;
+}
+
+export interface LibraryTreeNode {
+  path: string;
+  name: string;
+  /** 이 폴더 바로 아래 항목 수 */
+  itemCount: number;
+  children: LibraryTreeNode[];
+}
+
+export interface IndexingState {
+  running: boolean;
+  rootId: string | null;
+  processed: number;
+  total: number;
+  currentFile: string | null;
+  /** 마지막 실행의 오류 요약 */
+  lastError: string | null;
+}
+
+/** 렌더러가 직접 재생할 수 있는지에 대한 판정. 확신이 아니라 코덱·컨테이너 기준의 예측이다. */
+export interface PlaybackCapability {
+  /** true: <video>/<img> 로 바로 열어도 됨. false: 프레임 추출 또는 프록시 경로 */
+  direct: boolean;
+  reason: string | null;
+  /** 음성이 브라우저에서 재생 가능한지 (AC-3·DTS 는 불가) */
+  audioPlayable: boolean;
+  mime: string;
+}
+
+/** 재생·프레임 추출 대상. 경로는 렌더러에 노출하지 않고 메인이 해석한다. */
+export type MediaRef =
+  | { kind: 'item'; id: string }
+  | { kind: 'job'; jobId: string; side: 'input' | 'output' }
+  | { kind: 'preview'; id: string };
+
+export interface MediaSource {
+  ref: MediaRef;
+  url: string;
+  capability: PlaybackCapability;
+  mediaKind: MediaKind;
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number;
+  fileName: string;
+}
+
+export interface PreviewAsset {
+  id: string;
+  kind: 'proxy' | 'settings';
+  /** 원본 항목 또는 작업 ID */
+  sourceKey: string;
+  url: string;
+  sizeBytes: number;
+  durationSec: number | null;
+  createdAt: string;
+  /** 사용자에게 보이는 설명 ("미리보기용 변환본" 등) */
+  note: string;
+  settings: JobSettings | null;
+  startSec: number | null;
+}
+
+export interface PreviewProgress {
+  previewId: string;
+  status: 'running' | 'done' | 'failed' | 'cancelled';
+  ratio: number | null;
+  asset: PreviewAsset | null;
+  error: string | null;
+}
+
+export interface DuplicateGroup {
+  /** 크기와 길이로 만든 그룹 키 */
+  key: string;
+  sizeBytes: number;
+  durationSec: number | null;
+  items: LibraryItem[];
+  /** 해시로 확인된 동일 파일 묶음 (verify 후 채워짐) */
+  hashes: Record<string, string> | null;
+}
+
+export interface CacheStats {
+  thumbBytes: number;
+  thumbCount: number;
+  previewBytes: number;
+  previewCount: number;
+  limitBytes: number;
 }

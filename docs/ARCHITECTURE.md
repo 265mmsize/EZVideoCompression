@@ -91,3 +91,36 @@ DB 에 기록이 없는 임시 디렉터리도 앱이 만든 것이므로 정리
 - 새 입력 특성: `CapabilityService.analyzeCapability` 에 제한 항목을 추가한다. 차단인지 경고인지 severity 로 정한다.
 - 새 검증: `OutputValidationService.validate` 에 체크를 추가한다. 실패 시 확정하지 않는다.
 - 새 채널: `InvokeContract`, `invokeSchemas`, `registerIpc` 의 핸들러 맵 세 곳을 함께 고친다. 타입 검사가 누락을 잡는다.
+
+## 7. 미디어 라이브러리 (L1~L5)
+
+```
+services/library/
+  MediaTokenRegistry.ts   키 → 토큰 발급, vslim-media://file/<토큰> 해석, Range 응답 계획 (순수 함수)
+  LibraryIndexer.ts       폴더 스캔(심볼릭 링크·숨김 제외, 5만 개 상한) → ffprobe → DB. 변경 감지, 없음 표시, 직렬 큐, 취소
+  ThumbnailService.ts     썸네일·스크럽·정확한 프레임·TIFF 변환 JPEG 캐시 (LRU, 인코딩 중 동시 1개)
+  PreviewService.ts       직접 재생 판정, 소스 URL, 프레임, 프록시(H.264 ≤1280px ≤10분), 설정 미리보기(구간 실제 인코딩)
+  LibraryService.ts       폴더 등록·조회·메타·태그·대기열 연결·중복 후보(크기·길이 → SHA-256)·캐시 관리
+repositories/LibraryRepository.ts
+```
+
+### 7.1 전용 프로토콜
+
+렌더러 CSP 는 `img-src`·`media-src` 에 `vslim-media:` 만 추가로 허용한다. 메인은 `protocol.handle` 로
+`vslim-media://file/<토큰>` 을 받아 토큰 레지스트리에서 실제 경로를 찾는다. URL 에 경로가 실리지 않으며,
+등록되지 않은 토큰은 404 다. Range 헤더를 해석해 206 으로 부분 응답하므로 `<video>` 탐색이 동작한다.
+`stream: true` 권한은 Range 지원을 위한 것이고, 외부 네트워크와는 무관하다 (`connect-src 'none'` 유지).
+
+### 7.2 미리보기 우선순위
+
+1. `judgeCapability`: 코덱(h264, vp8, vp9, av1)과 컨테이너(mp4, mov, webm) 기준으로 직접 재생 여부를 예측한다. MKV 와 HEVC 는 직접 재생으로 보지 않는다.
+   음성이 AC-3·DTS 면 "소리 없이 재생"을 표시한다.
+2. 직접 재생이 아니거나 `<video>` 가 오류를 내면 `FrameViewer` 가 시점별 프레임을 요청한다 (`-ss` 정밀 탐색, 0.1초 단위 캐시).
+3. 사용자가 요청하면 프록시를 만든다. 결과에는 항상 "미리보기용 변환본, 압축 결과가 아님"을 표시한다.
+
+### 7.3 비교와 설정 미리보기
+
+`ComparePane` 은 두 참조(작업 입력/출력, 라이브러리 항목, 미리보기)에서 같은 기준 시점의 프레임을 추출해
+나란히·전환·와이프로 보여주고 확대·동기 스크롤을 제공한다. 양쪽 모두 직접 재생이 가능하면 동기 재생도 한다.
+설정 미리보기는 `buildEncodePlan` 에 `inputTrim` 을 주어 작업의 실제 설정(2-pass 포함)으로 구간을 인코딩한다.
+결과는 `previews` 에만 기록되고 작업 상태·출력에는 영향을 주지 않는다.

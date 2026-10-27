@@ -2,7 +2,14 @@
  * 앱 상태 저장소. 외부 라이브러리 없이 구독형 스토어로 구현했다 (useSyncExternalStore 와 함께 사용).
  * 메인 프로세스의 푸시 이벤트를 받아 작업 목록을 갱신한다.
  */
-import type { AppSettings, JobView, QueueState, ToolStatus } from '../../shared/types/domain';
+import type {
+  AppSettings,
+  IndexingState,
+  JobView,
+  PreviewProgress,
+  QueueState,
+  ToolStatus,
+} from '../../shared/types/domain';
 import { call, subscribe, RendererError } from '../api';
 
 export interface AppState {
@@ -13,6 +20,9 @@ export interface AppState {
   ready: boolean;
   /** 화면 상단에 한 번 보여줄 알림 */
   notice: { kind: 'info' | 'error'; text: string; id: number } | null;
+  indexing: IndexingState;
+  /** 미리보기 생성 진행 상태 (ID 별 최신값) */
+  previews: Record<string, PreviewProgress>;
 }
 
 let state: AppState = {
@@ -22,6 +32,15 @@ let state: AppState = {
   settings: null,
   ready: false,
   notice: null,
+  indexing: {
+    running: false,
+    rootId: null,
+    processed: 0,
+    total: 0,
+    currentFile: null,
+    lastError: null,
+  },
+  previews: {},
 };
 const listeners = new Set<() => void>();
 let noticeSeq = 0;
@@ -82,14 +101,19 @@ export async function initStore(): Promise<void> {
   subscribe('job:removed', ({ id }) => set({ jobs: state.jobs.filter((j) => j.id !== id) }));
   subscribe('queue:changed', (queue) => set({ queue }));
   subscribe('tools:changed', (tools) => set({ tools }));
+  subscribe('library:indexing', (indexing) => set({ indexing }));
+  subscribe('library:preview.progress', (p) =>
+    set({ previews: { ...state.previews, [p.previewId]: p } }),
+  );
 
-  const [settings, tools, queue, jobs] = await Promise.all([
+  const [settings, tools, queue, jobs, indexing] = await Promise.all([
     call('settings:get'),
     call('tools:status'),
     call('queue:state'),
     call('jobs:list'),
+    call('library:indexing.state'),
   ]);
-  set({ settings, tools, queue, jobs, ready: true });
+  set({ settings, tools, queue, jobs, indexing, ready: true });
 }
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
