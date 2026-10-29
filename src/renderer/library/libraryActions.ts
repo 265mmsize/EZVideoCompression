@@ -4,6 +4,8 @@
 import { call } from '../api';
 import { errorText, notify, refreshJobs } from '../stores/appStore';
 import type {
+  ImageEditOps,
+  ImageExportRequest,
   LibraryItem,
   LibraryQuery,
   MediaLabel,
@@ -85,6 +87,26 @@ export const libraryApi = {
   cacheStats: () => run('캐시 상태', () => call('library:cache.stats')),
   clearCache: () => run('캐시 비우기', () => call('library:cache.clear')),
   showInFolder: (path: string) => run('폴더 열기', () => call('shell:showInFolder', { path })),
+
+  // ----- 이미지 편집 · 화면 캡처 -----
+  imageOpen: (path: string) => run('이미지 열기', () => call('image:open', { path })),
+  imagePickOpen: () => run('이미지 열기', () => call('image:pickOpen')),
+  /** 미리보기는 새 요청으로 취소될 수 있으므로 알림 없이 undefined 를 돌려준다 */
+  imagePreview: async (path: string, ops: ImageEditOps, maxWidth: number) => {
+    try {
+      return await call('image:preview', { path, ops, maxWidth });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'CANCELLED') return undefined;
+      notify('error', `미리보기 실패: ${errorText(err)}`);
+      return undefined;
+    }
+  },
+  imageExport: (req: ImageExportRequest) => run('이미지 저장', () => call('image:export', req)),
+  imagePickSavePath: (defaultName: string, format: 'jpeg' | 'png' | 'webp') =>
+    run('저장 위치 선택', () => call('image:pickSavePath', { defaultName, format })),
+  captureSources: () => run('캡처 대상 목록', () => call('capture:sources')),
+  captureTake: (sourceId: string, delaySec: number, hideApp: boolean) =>
+    run('화면 캡처', () => call('capture:take', { sourceId, delaySec, hideApp })),
 };
 
 export type ItemPatch = Partial<Pick<LibraryItem, 'rating' | 'label' | 'note'>>;

@@ -9,8 +9,16 @@ import type {
   AddResult,
   AppSettings,
   CacheStats,
+  CaptureResult,
+  CaptureSource,
   CompressionMode,
   DuplicateGroup,
+  ImageEditOps,
+  ImageExportFormat,
+  ImageExportRequest,
+  ImageExportResult,
+  ImageInfo,
+  ImagePreview,
   IndexingState,
   JobSettings,
   JobView,
@@ -147,6 +155,30 @@ export interface InvokeContract {
   };
   'library:cache.stats': { request: void; response: CacheStats };
   'library:cache.clear': { request: void; response: CacheStats };
+
+  // ----- 이미지 편집 · 화면 캡처 (1.3.0) -----
+  /** 이미지 열기 (경로 지정). 원본은 읽기만 한다 */
+  'image:open': { request: { path: string }; response: ImageInfo };
+  /** 파일 대화상자로 이미지 열기 */
+  'image:pickOpen': { request: void; response: ImageInfo | null };
+  /** 편집 연산을 적용한 미리보기 (축소본). 같은 경로의 이전 미리보기 생성은 취소된다 */
+  'image:preview': {
+    request: { path: string; ops: ImageEditOps; maxWidth: number };
+    response: ImagePreview;
+  };
+  /** 전체 크기로 저장. 원본은 덮어쓰지 않으며 이름이 겹치면 번호를 붙인다 */
+  'image:export': { request: ImageExportRequest; response: ImageExportResult };
+  /** 저장 위치 선택 대화상자 */
+  'image:pickSavePath': {
+    request: { defaultName: string; format: Exclude<ImageExportFormat, 'keep'> };
+    response: { path: string } | null;
+  };
+  'capture:sources': { request: void; response: CaptureSource[] };
+  /** 화면·창 캡처 → PNG 저장 (사진 폴더 아래 'VideoSlim 캡처') */
+  'capture:take': {
+    request: { sourceId: string; delaySec: number; hideApp: boolean };
+    response: CaptureResult;
+  };
 }
 
 /** 메인 → 렌더러 푸시 이벤트 */
@@ -230,6 +262,13 @@ export const CHANNEL_NAMES = {
     'library:duplicates.verify',
     'library:cache.stats',
     'library:cache.clear',
+    'image:open',
+    'image:pickOpen',
+    'image:preview',
+    'image:export',
+    'image:pickSavePath',
+    'capture:sources',
+    'capture:take',
   ] satisfies InvokeChannel[],
   events: [
     'job:changed',

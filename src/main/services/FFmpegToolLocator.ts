@@ -126,7 +126,7 @@ export class FFmpegToolLocator {
 
   /** 소프트웨어 인코더 가용성만 확인한다. 하드웨어 인코더는 4단계에서 실제 테스트 인코딩으로 검사한다. */
   private async listSoftwareEncoders(ffmpegPath: string): Promise<string[]> {
-    const wanted = ['libx264', 'libx265'];
+    const wanted = ['libx264', 'libx265', 'libwebp'];
     const res = await this.proc.run(ffmpegPath, ['-hide_banner', '-encoders'], {
       timeoutMs: 15_000,
       captureStdout: true,

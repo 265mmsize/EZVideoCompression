@@ -29,6 +29,8 @@ export const ERROR_CODES = [
   'LIBRARY_ROOT_INVALID',
   'MEDIA_NOT_FOUND',
   'PREVIEW_FAILED',
+  'IMAGE_EDIT_FAILED',
+  'CAPTURE_FAILED',
   'UNKNOWN',
 ] as const;
 
@@ -159,6 +161,16 @@ export const ERROR_CATALOG: Readonly<Record<ErrorCode, ErrorInfo>> = {
     title: '미리보기를 만들지 못했습니다',
     cause: 'FFmpeg 가 프레임 추출 또는 변환본 생성에 실패했습니다.',
     action: '상세 로그를 확인하세요. 원본 파일은 변경되지 않았습니다.',
+  },
+  IMAGE_EDIT_FAILED: {
+    title: '이미지 편집에 실패했습니다',
+    cause: 'FFmpeg 가 이미지를 읽거나 변환하지 못했습니다.',
+    action: '형식이 지원되는지 확인하세요. 원본 파일은 변경되지 않았습니다.',
+  },
+  CAPTURE_FAILED: {
+    title: '화면을 캡처하지 못했습니다',
+    cause: '캡처 대상이 사라졌거나 운영체제가 화면 접근을 거부했습니다.',
+    action: '대상을 다시 고르고, Windows 설정의 화면 캡처 권한을 확인하세요.',
   },
   UNKNOWN: {
     title: '알 수 없는 오류가 발생했습니다',

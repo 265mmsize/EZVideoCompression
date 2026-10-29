@@ -12,11 +12,13 @@ export function MediaDetail({
   onChanged,
   onClose,
   onCompare,
+  onEdit,
 }: {
   item: LibraryItem;
   onChanged: (it: LibraryItem) => void;
   onClose: () => void;
   onCompare: (jobId: string) => void;
+  onEdit: (path: string) => void;
 }): ReactNode {
   const [tagsText, setTagsText] = useState(item.tags.join(', '));
   const [note, setNote] = useState(item.note ?? '');
@@ -191,6 +193,11 @@ export function MediaDetail({
           {item.kind === 'video' && !item.missing && (
             <Button variant="primary" onClick={() => void libraryApi.enqueue([item.id])}>
               압축 대기열에 추가
+            </Button>
+          )}
+          {item.kind === 'image' && !item.missing && (
+            <Button variant="primary" onClick={() => onEdit(item.path)}>
+              이미지 편집
             </Button>
           )}
           <Button onClick={() => void libraryApi.showInFolder(item.path)}>탐색기에서 열기</Button>

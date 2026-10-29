@@ -25,6 +25,7 @@ import { LibraryService } from './services/library/LibraryService';
 import { MediaTokenRegistry } from './services/library/MediaTokenRegistry';
 import { PreviewService } from './services/library/PreviewService';
 import { ThumbnailService } from './services/library/ThumbnailService';
+import { ImageEditService } from './services/image/ImageEditService';
 import type { EventChannel } from '../shared/contracts/ipc';
 
 export interface ContainerOptions {
@@ -53,6 +54,7 @@ export interface AppServices {
   library: LibraryService;
   indexer: LibraryIndexer;
   previews: PreviewService;
+  imageEdit: ImageEditService;
   tokens: MediaTokenRegistry;
   /** 마지막 탐지 결과 */
   toolStatus: () => ToolStatus | null;
@@ -167,6 +169,16 @@ export function createServices(opts: ContainerOptions): AppServices {
     logger,
     limitBytes,
   });
+  const imageEdit = new ImageEditService({
+    proc,
+    probe,
+    tools: requireTools,
+    tokens,
+    thumbs,
+    previewDir: path.join(opts.userDataDir, 'edit-previews'),
+    logger,
+    indexFile: (p) => library.indexFile(p),
+  });
 
   return {
     db,
@@ -181,6 +193,7 @@ export function createServices(opts: ContainerOptions): AppServices {
     library,
     indexer,
     previews,
+    imageEdit,
     tokens,
     toolStatus: () => status,
     refreshTools: () => {

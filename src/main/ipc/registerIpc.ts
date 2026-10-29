@@ -24,11 +24,26 @@ export interface DialogPort {
   /** 라이브러리 폴더 선택 (pickFolder 와 같은 대화상자, 제목만 다름) */
   pickLibraryFolder: () => Promise<string | null>;
   saveLogFile: (defaultName: string) => Promise<string | null>;
+  /** 편집할 이미지 파일 선택 */
+  pickImage: () => Promise<string | null>;
+  /** 편집 결과 저장 위치 선택 */
+  saveImageAs: (defaultName: string, ext: string) => Promise<string | null>;
+}
+
+/** 화면 캡처는 Electron 창·desktopCapturer 에 묶이므로 메인 진입점이 주입한다 (테스트에서는 없음) */
+export interface CapturePort {
+  sources: () => Promise<InvokeContract['capture:sources']['response']>;
+  take: (
+    sourceId: string,
+    delaySec: number,
+    hideApp: boolean,
+  ) => Promise<InvokeContract['capture:take']['response']>;
 }
 
 export interface IpcDeps {
   services: AppServices;
   dialogs: DialogPort;
+  capture: CapturePort | null;
   appVersion: string;
   isPackaged: boolean;
 }
@@ -152,7 +167,28 @@ export function registerIpc(deps: IpcDeps): void {
     }),
     'library:cache.stats': () => s.library.cacheStats(),
     'library:cache.clear': () => s.library.clearCache(),
+
+    'image:open': ({ path }) => s.imageEdit.open(path),
+    'image:pickOpen': async () => {
+      const p = await dialogs.pickImage();
+      return p ? s.imageEdit.open(p) : null;
+    },
+    'image:preview': ({ path, ops, maxWidth }) => s.imageEdit.preview(path, ops, maxWidth),
+    'image:export': (req) => s.imageEdit.exportImage(req),
+    'image:pickSavePath': async ({ defaultName, format }) => {
+      const p = await dialogs.saveImageAs(defaultName, format === 'jpeg' ? 'jpg' : format);
+      return p ? { path: p } : null;
+    },
+    'capture:sources': () => requireCapture().sources(),
+    'capture:take': ({ sourceId, delaySec, hideApp }) =>
+      requireCapture().take(sourceId, delaySec, hideApp),
   };
+
+  function requireCapture(): CapturePort {
+    if (!deps.capture)
+      throw new AppError('CAPTURE_FAILED', '이 환경에서는 화면 캡처를 쓸 수 없습니다');
+    return deps.capture;
+  }
 
   for (const channel of CHANNEL_NAMES.invoke) {
     registerChannel(channel, handlers, s);

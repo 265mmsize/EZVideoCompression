@@ -7,11 +7,13 @@
 import { z } from 'zod';
 import {
   COMPRESSION_MODES,
+  IMAGE_EXPORT_FORMATS,
   LIBRARY_SORTS,
   MEDIA_KINDS,
   MEDIA_LABELS,
   OUTPUT_CONTAINERS,
   PRESETS,
+  RESIZE_FILTERS,
   VIDEO_CODECS,
 } from '../types/domain';
 import type { InvokeChannel } from '../contracts/ipc';
@@ -60,6 +62,40 @@ const mediaRefSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('job'), jobId: idSchema, side: z.enum(['input', 'output']) }),
   z.object({ kind: z.literal('preview'), id: idSchema }),
 ]);
+
+const MAX_IMAGE_DIM = 16_384;
+const pixel = z.number().int().min(0).max(MAX_IMAGE_DIM);
+export const imageEditOpsSchema = z.object({
+  crop: z
+    .object({
+      x: pixel,
+      y: pixel,
+      width: z.number().int().min(1).max(MAX_IMAGE_DIM),
+      height: z.number().int().min(1).max(MAX_IMAGE_DIM),
+    })
+    .nullable(),
+  rotate: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
+  flipH: z.boolean(),
+  flipV: z.boolean(),
+  angle: z.number().min(-45).max(45),
+  fillColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, '색은 #rrggbb 형식이어야 합니다'),
+  resize: z
+    .object({
+      width: z.number().int().min(1).max(MAX_IMAGE_DIM),
+      height: z.number().int().min(1).max(MAX_IMAGE_DIM),
+      filter: z.enum(RESIZE_FILTERS),
+    })
+    .nullable(),
+  enhance: z.object({
+    sharpen: z.number().min(0).max(2),
+    denoise: z.number().min(0).max(10),
+    brightness: z.number().min(-0.5).max(0.5),
+    contrast: z.number().min(0.5).max(2),
+    saturation: z.number().min(0).max(3),
+    gamma: z.number().min(0.5).max(2),
+    autoLevel: z.boolean(),
+  }),
+});
 
 export const libraryQuerySchema = z.object({
   rootId: idSchema.nullable(),
@@ -146,4 +182,38 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'library:duplicates.verify': z.object({ ids: z.array(idSchema).min(2).max(200) }),
   'library:cache.stats': voidSchema,
   'library:cache.clear': voidSchema,
+  'image:open': z.object({ path: absolutePath }),
+  'image:pickOpen': voidSchema,
+  'image:preview': z.object({
+    path: absolutePath,
+    ops: imageEditOpsSchema,
+    maxWidth: z.number().int().min(64).max(4096),
+  }),
+  'image:export': z.object({
+    path: absolutePath,
+    ops: imageEditOpsSchema,
+    format: z.enum(IMAGE_EXPORT_FORMATS),
+    quality: z.number().int().min(1).max(100),
+    target: z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('suffix'),
+        suffix: z
+          .string()
+          .min(1)
+          .max(40)
+          .regex(/^[^\\/:*?"<>|\0]+$/, '접미사에 사용할 수 없는 문자가 있습니다'),
+      }),
+      z.object({ kind: z.literal('path'), path: absolutePath }),
+    ]),
+  }),
+  'image:pickSavePath': z.object({
+    defaultName: z.string().min(1).max(255),
+    format: z.enum(['jpeg', 'png', 'webp']),
+  }),
+  'capture:sources': voidSchema,
+  'capture:take': z.object({
+    sourceId: z.string().min(1).max(200),
+    delaySec: z.number().int().min(0).max(30),
+    hideApp: z.boolean(),
+  }),
 };

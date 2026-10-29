@@ -33,7 +33,13 @@ const DEFAULT_QUERY: LibraryQuery = {
   offset: 0,
 };
 
-export function LibraryPage({ onCompare }: { onCompare: (jobId: string) => void }): ReactNode {
+export function LibraryPage({
+  onCompare,
+  onEdit,
+}: {
+  onCompare: (jobId: string) => void;
+  onEdit: (path: string) => void;
+}): ReactNode {
   const { indexing, settings } = useAppStore();
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
   const [trees, setTrees] = useState<Record<string, LibraryTreeNode>>({});
@@ -262,6 +268,7 @@ export function LibraryPage({ onCompare }: { onCompare: (jobId: string) => void 
           onChanged={patchItem}
           onClose={() => setSelected(new Set())}
           onCompare={onCompare}
+          onEdit={onEdit}
         />
       )}
     </div>

@@ -378,7 +378,7 @@ export interface ToolStatus {
   ffmpeg: ToolInfo;
   ffprobe: ToolInfo;
   ready: boolean;
-  /** 사용 가능한 소프트웨어 인코더 목록 (libx264, libx265) */
+  /** 사용 가능한 소프트웨어 인코더 목록 (libx264, libx265, libwebp) */
   encoders: string[];
   hardwareEncoders: HardwareEncoderStatus[];
 }
@@ -560,4 +560,120 @@ export interface CacheStats {
   previewBytes: number;
   previewCount: number;
   limitBytes: number;
+}
+
+// ---------------------------------------------------------------------------
+// 이미지 편집 · 화면 캡처 (1.3.0)
+// ---------------------------------------------------------------------------
+
+export const IMAGE_EXPORT_FORMATS = ['keep', 'jpeg', 'png', 'webp'] as const;
+export type ImageExportFormat = (typeof IMAGE_EXPORT_FORMATS)[number];
+export const RESIZE_FILTERS = ['lanczos', 'bicubic'] as const;
+export type ResizeFilter = (typeof RESIZE_FILTERS)[number];
+export const ROTATIONS = [0, 90, 180, 270] as const;
+export type Rotation = (typeof ROTATIONS)[number];
+
+/** 원본 픽셀 좌표계의 자르기 영역 (회전 전) */
+export interface ImageCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** 화질 보정. 모두 FFmpeg 필터이며 AI 복원이 아니다 (없는 세부 정보를 만들지 않는다). */
+export interface ImageEnhance {
+  /** 선명하게 (unsharp amount, 0 = 끔, 최대 2) */
+  sharpen: number;
+  /** 노이즈 제거 강도 (hqdn3d, 0 = 끔, 최대 10) */
+  denoise: number;
+  /** 밝기 (-0.5 ~ 0.5, 0 = 원본) */
+  brightness: number;
+  /** 대비 (0.5 ~ 2, 1 = 원본) */
+  contrast: number;
+  /** 채도 (0 ~ 3, 1 = 원본) */
+  saturation: number;
+  /** 감마 (0.5 ~ 2, 1 = 원본) */
+  gamma: number;
+  /** 자동 레벨 (normalize: 가장 어두운 값과 밝은 값을 0~255 로 펼침) */
+  autoLevel: boolean;
+}
+
+/** 편집 연산. 적용 순서: 자르기 → 90° 회전·뒤집기 → 미세 회전 → 크기 조정 → 화질 보정 */
+export interface ImageEditOps {
+  crop: ImageCrop | null;
+  rotate: Rotation;
+  flipH: boolean;
+  flipV: boolean;
+  /** 미세 회전 각도 (-45 ~ 45도). 빈 영역은 fillColor 로 채우고 전체가 보이도록 캔버스를 키운다 */
+  angle: number;
+  /** '#rrggbb' */
+  fillColor: string;
+  resize: { width: number; height: number; filter: ResizeFilter } | null;
+  enhance: ImageEnhance;
+}
+
+export interface ImageInfo {
+  path: string;
+  fileName: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  mtimeMs: number;
+  /** ffprobe 코덱 이름 (mjpeg, png, webp, tiff …) */
+  codec: string;
+  pixFmt: string | null;
+  hasAlpha: boolean;
+  /** 표시용 URL (브라우저가 못 읽는 형식은 변환 JPEG) */
+  url: string;
+  /** url 이 변환본인지 여부 */
+  converted: boolean;
+}
+
+export interface ImagePreview {
+  url: string;
+  /** 전체 크기로 저장했을 때의 결과 해상도 (미리보기 이미지는 이보다 작을 수 있다) */
+  width: number;
+  height: number;
+  /** 미리보기 이미지의 실제 픽셀 크기 */
+  previewWidth: number;
+  previewHeight: number;
+}
+
+export type ImageExportTarget = { kind: 'suffix'; suffix: string } | { kind: 'path'; path: string };
+
+export interface ImageExportRequest {
+  path: string;
+  ops: ImageEditOps;
+  format: ImageExportFormat;
+  /** 1~100 (JPEG·WebP 에만 적용) */
+  quality: number;
+  target: ImageExportTarget;
+}
+
+export interface ImageExportResult {
+  outputPath: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  format: Exclude<ImageExportFormat, 'keep'>;
+  /** 결과가 등록된 라이브러리 폴더 안에 있으면 인덱싱된 항목 ID */
+  libraryItemId: string | null;
+  /** 사용자가 알아야 할 변화 (알파 채널 제거, EXIF 미보존 등) */
+  notes: string[];
+}
+
+export interface CaptureSource {
+  id: string;
+  name: string;
+  kind: 'screen' | 'window';
+  /** 작은 미리보기 (data URL, PNG) */
+  thumbnailDataUrl: string;
+}
+
+export interface CaptureResult {
+  path: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
 }

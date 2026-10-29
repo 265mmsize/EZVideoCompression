@@ -14,6 +14,7 @@ import {
   planMediaResponse,
   tokenFromUrl,
 } from './services/library/MediaTokenRegistry';
+import { ScreenCaptureService } from './services/image/ScreenCaptureService';
 import { createServices, type AppServices } from './container';
 import { registerIpc, type DialogPort } from './ipc/registerIpc';
 import { CHANNEL_NAMES, type EventChannel } from '../shared/contracts/ipc';
@@ -125,6 +126,34 @@ function bootstrap(): void {
         : await dialog.showOpenDialog(options);
       return res.canceled ? null : (res.filePaths[0] ?? null);
     },
+    pickImage: async () => {
+      const options: Electron.OpenDialogOptions = {
+        title: '편집할 이미지 선택',
+        properties: ['openFile'],
+        filters: [
+          {
+            name: '이미지',
+            extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'avif'],
+          },
+          { name: '모든 파일', extensions: ['*'] },
+        ],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return res.canceled ? null : (res.filePaths[0] ?? null);
+    },
+    saveImageAs: async (defaultName, ext) => {
+      const options: Electron.SaveDialogOptions = {
+        title: '편집 결과 저장 (기존 파일은 덮어쓰지 않고 번호를 붙입니다)',
+        defaultPath: defaultName,
+        filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+      };
+      const res = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options);
+      return res.canceled ? null : res.filePath;
+    },
     saveLogFile: async (defaultName) => {
       const options: Electron.SaveDialogOptions = {
         title: '지원용 로그 내보내기',
@@ -138,9 +167,25 @@ function bootstrap(): void {
     },
   };
 
+  const capture = new ScreenCaptureService({
+    dir: path.join(app.getPath('pictures'), 'VideoSlim 캡처'),
+    logger: services.logger,
+    hideApp: () => {
+      if (mainWindow && !mainWindow.isMinimized()) mainWindow.minimize();
+    },
+    showApp: () => {
+      if (mainWindow?.isMinimized()) mainWindow.restore();
+      mainWindow?.focus();
+    },
+  });
+
   registerIpc({
     services,
     dialogs,
+    capture: {
+      sources: () => capture.sources(),
+      take: (id, delay, hide) => capture.take(id, delay, hide),
+    },
     appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
   });

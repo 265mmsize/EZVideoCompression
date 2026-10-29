@@ -244,6 +244,33 @@ export class LibraryIndexer {
     this.patch({ processed, currentFile: null });
   }
 
+  /**
+   * 파일 하나를 바로 인덱싱한다 (편집 결과 저장 직후 등). 폴더 전체 스캔은 하지 않는다.
+   * 기존 항목이 있으면 갱신한다. 반환값은 항목 ID.
+   */
+  async indexSingle(rootId: string, filePath: string): Promise<string> {
+    await this.deps.toolsReady();
+    const st = fs.statSync(filePath);
+    const f: ScannedFile = {
+      path: filePath,
+      kind: kindOfExtension(path.extname(filePath)),
+      sizeBytes: st.size,
+      mtimeMs: st.mtimeMs,
+    };
+    const key = normalizeForCompare(filePath);
+    const id = this.deps.repo.getItemByPathKey(key)?.id ?? randomUUID();
+    try {
+      await this.indexOne(id, rootId, f, key);
+    } catch (err) {
+      const app = AppError.from(err);
+      this.deps.repo.upsertItem({
+        ...baseUpsert(id, rootId, f, key, this.now()),
+        errorCode: app.code,
+      });
+    }
+    return id;
+  }
+
   private async indexOne(id: string, rootId: string, f: ScannedFile, key: string): Promise<void> {
     const probe = await this.deps.probe.probe(f.path);
     const video = probe.streams.find((s) => s.kind === 'video' && !s.isAttachedPic) ?? null;

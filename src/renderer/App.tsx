@@ -5,16 +5,18 @@ import { HistoryPage } from './pages/HistoryPage';
 import { JobsPage } from './pages/JobsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LibraryPage } from './library/LibraryPage';
+import { ImageEditorPage } from './pages/ImageEditorPage';
 import { Button } from './components/ui';
 import { recheckTools } from './actions';
 import { errorText, notify, initStore } from './stores/appStore';
 
-type Tab = 'library' | 'jobs' | 'compare' | 'history' | 'settings';
+type Tab = 'library' | 'jobs' | 'compare' | 'editor' | 'history' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '라이브러리' },
   { id: 'jobs', label: '작업 목록' },
   { id: 'compare', label: '비교' },
+  { id: 'editor', label: '이미지 편집' },
   { id: 'history', label: '이력' },
   { id: 'settings', label: '설정' },
 ];
@@ -25,6 +27,11 @@ export function App(): ReactNode {
   const openCompare = (jobId: string): void => {
     setCompareJobId(jobId);
     setTab('compare');
+  };
+  const [editorPath, setEditorPath] = useState<string | null>(null);
+  const openEditor = (path: string): void => {
+    setEditorPath(path);
+    setTab('editor');
   };
   const { ready, tools, settings, notice } = useAppStore();
 
@@ -92,11 +99,13 @@ export function App(): ReactNode {
         {!ready ? (
           <div className="p-6 text-[var(--c-muted)]">불러오는 중…</div>
         ) : tab === 'library' ? (
-          <LibraryPage onCompare={openCompare} />
+          <LibraryPage onCompare={openCompare} onEdit={openEditor} />
         ) : tab === 'jobs' ? (
           <JobsPage />
         ) : tab === 'compare' ? (
           <ComparePage key={compareJobId ?? 'none'} initialJobId={compareJobId} />
+        ) : tab === 'editor' ? (
+          <ImageEditorPage key={editorPath ?? 'none'} initialPath={editorPath} />
         ) : tab === 'history' ? (
           <HistoryPage />
         ) : (

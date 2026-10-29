@@ -156,6 +156,22 @@ export class LibraryService {
     };
   }
 
+  /**
+   * 파일이 등록 폴더 안에 있으면 바로 인덱싱하고 항목 ID 를 돌려준다. 밖이면 null.
+   * 하위 폴더를 포함하지 않는 등록 폴더는 바로 아래 파일만 해당한다.
+   */
+  async indexFile(filePath: string): Promise<string | null> {
+    const key = normalizeForCompare(filePath);
+    const dirKey = normalizeForCompare(path.dirname(filePath));
+    for (const r of this.deps.repo.listRoots()) {
+      const rootKey = normalizeForCompare(r.path);
+      if (!isInside(key, rootKey)) continue;
+      if (!r.includeSubfolders && dirKey !== rootKey) continue;
+      return this.deps.indexer.indexSingle(r.id, filePath);
+    }
+    return null;
+  }
+
   // ----- 압축 연결 -----
 
   enqueue(ids: string[]): AddResult {
