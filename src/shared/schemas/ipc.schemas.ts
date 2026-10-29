@@ -6,8 +6,14 @@
  */
 import { z } from 'zod';
 import {
+  CANVAS_PRESETS,
   COMPRESSION_MODES,
+  EDIT_PRESETS,
   IMAGE_EXPORT_FORMATS,
+  TEXT_X,
+  TEXT_Y,
+  TRANSITIONS,
+  WATERMARK_POSITIONS,
   LIBRARY_SORTS,
   MEDIA_KINDS,
   MEDIA_LABELS,
@@ -96,6 +102,96 @@ export const imageEditOpsSchema = z.object({
     autoLevel: z.boolean(),
   }),
 });
+
+const rotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
+const sec = z.number().min(0).max(1_000_000);
+const editTextSchema = z.object({
+  id: z.string().min(1).max(64),
+  text: z.string().max(500),
+  x: z.enum(TEXT_X),
+  y: z.enum(TEXT_Y),
+  fontSize: z.number().min(8).max(400),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  boxed: z.boolean(),
+  startSec: sec,
+  endSec: sec.nullable(),
+});
+const editClipSchema = z.object({
+  id: z.string().min(1).max(64),
+  path: absolutePath,
+  fileName: z.string().min(1).max(255),
+  sourceDurationSec: sec,
+  sourceWidth: z.number().int().min(1).max(16_384),
+  sourceHeight: z.number().int().min(1).max(16_384),
+  hasAudio: z.boolean(),
+  inSec: sec,
+  outSec: sec,
+  speed: z.number().min(0.25).max(4),
+  volume: z.number().min(0).max(2),
+  mute: z.boolean(),
+  rotate: rotationSchema,
+  flipH: z.boolean(),
+  flipV: z.boolean(),
+  filters: z.object({
+    brightness: z.number().min(-0.5).max(0.5),
+    contrast: z.number().min(0.5).max(2),
+    saturation: z.number().min(0).max(3),
+    sharpen: z.number().min(0).max(2),
+    denoise: z.number().min(0).max(10),
+  }),
+  stabilize: z.boolean(),
+  transition: z.object({ type: z.enum(TRANSITIONS), durationSec: z.number().min(0.1).max(5) }),
+  texts: z.array(editTextSchema).max(20),
+});
+export const editProjectSchema = z.object({
+  id: idSchema,
+  name: z.string().min(1).max(120),
+  clips: z.array(editClipSchema).max(200),
+  music: z
+    .object({
+      path: absolutePath,
+      fileName: z.string().min(1).max(255),
+      sourceDurationSec: sec,
+      volume: z.number().min(0).max(2),
+      fadeInSec: z.number().min(0).max(30),
+      fadeOutSec: z.number().min(0).max(30),
+      loop: z.boolean(),
+      originalMix: z.number().min(0).max(1),
+    })
+    .nullable(),
+  watermark: z
+    .object({
+      path: absolutePath,
+      fileName: z.string().min(1).max(255),
+      position: z.enum(WATERMARK_POSITIONS),
+      scale: z.number().min(0.05).max(1),
+      opacity: z.number().min(0).max(1),
+    })
+    .nullable(),
+  canvas: z.object({
+    preset: z.enum(CANVAS_PRESETS),
+    fps: z.union([z.literal('auto'), z.literal(24), z.literal(30), z.literal(60)]),
+  }),
+  output: z.object({
+    container: z.enum(OUTPUT_CONTAINERS),
+    codec: z.enum(VIDEO_CODECS),
+    crf: z.number().int().min(10).max(40),
+    preset: z.enum(EDIT_PRESETS),
+  }),
+  createdAt: z.string().max(40),
+  updatedAt: z.string().max(40),
+});
+const exportTargetSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('suffix'),
+    suffix: z
+      .string()
+      .min(1)
+      .max(40)
+      .regex(/^[^\\/:*?"<>|\0]+$/, '접미사에 사용할 수 없는 문자가 있습니다'),
+  }),
+  z.object({ kind: z.literal('path'), path: absolutePath }),
+]);
 
 export const libraryQuerySchema = z.object({
   rootId: idSchema.nullable(),
@@ -194,21 +290,29 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
     ops: imageEditOpsSchema,
     format: z.enum(IMAGE_EXPORT_FORMATS),
     quality: z.number().int().min(1).max(100),
-    target: z.discriminatedUnion('kind', [
-      z.object({
-        kind: z.literal('suffix'),
-        suffix: z
-          .string()
-          .min(1)
-          .max(40)
-          .regex(/^[^\\/:*?"<>|\0]+$/, '접미사에 사용할 수 없는 문자가 있습니다'),
-      }),
-      z.object({ kind: z.literal('path'), path: absolutePath }),
-    ]),
+    target: exportTargetSchema,
   }),
   'image:pickSavePath': z.object({
     defaultName: z.string().min(1).max(255),
     format: z.enum(['jpeg', 'png', 'webp']),
+  }),
+  'edit:projects.list': voidSchema,
+  'edit:project.create': z.object({ name: z.string().min(1).max(120) }),
+  'edit:project.get': z.object({ id: idSchema }),
+  'edit:project.save': z.object({ project: editProjectSchema }),
+  'edit:project.delete': z.object({ id: idSchema }),
+  'edit:source.probe': z.object({ path: absolutePath }),
+  'edit:pickMedia': z.object({ kind: z.enum(['video', 'audio', 'image']) }),
+  'edit:frame': z.object({ path: absolutePath, timeSec: sec }),
+  'edit:render': z.object({
+    projectId: idSchema,
+    mode: z.enum(['proxy', 'export']),
+    target: exportTargetSchema.nullable(),
+  }),
+  'edit:render.cancel': z.object({ renderId: idSchema }),
+  'edit:pickExportPath': z.object({
+    defaultName: z.string().min(1).max(255),
+    ext: z.enum(['mp4', 'mkv']),
   }),
   'capture:sources': voidSchema,
   'capture:take': z.object({

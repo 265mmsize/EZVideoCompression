@@ -153,6 +153,19 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX idx_previews_source ON previews(source_key);
     `,
   },
+  {
+    version: 4,
+    description: '영상 편집 프로젝트',
+    up: `
+      CREATE TABLE edit_projects (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        json        TEXT NOT NULL,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

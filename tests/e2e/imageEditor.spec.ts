@@ -128,8 +128,18 @@ test('이미지를 열어 자르고 회전하면 미리보기와 결과 크기�
 test('화면 캡처 대화상자에서 화면을 고르면 PNG 가 저장되고 편집기에 열린다', async () => {
   await page.getByRole('button', { name: '화면 캡처' }).click();
   const dialog = page.getByRole('dialog', { name: '화면 캡처' });
-  const options = dialog.getByRole('option');
-  await expect(options.first()).toBeVisible({ timeout: 30_000 });
+  const options = dialog.getByRole('listbox', { name: '캡처 대상' }).getByRole('option');
+  // 가상 화면에서는 목록이 비어 돌아올 때가 있어 새로 고침하며 기다린다
+  await expect
+    .poll(
+      async () => {
+        const n = await options.count();
+        if (n === 0) await dialog.getByRole('button', { name: '목록 새로 고침' }).click();
+        return n;
+      },
+      { timeout: 60_000 },
+    )
+    .toBeGreaterThan(0);
   await options.first().click();
   // 창 관리자가 없는 xvfb 에서는 최소화가 동작하지 않으므로 끈다
   await dialog.getByRole('checkbox', { name: /최소화/ }).uncheck();

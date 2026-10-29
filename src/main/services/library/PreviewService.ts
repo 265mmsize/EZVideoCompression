@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type {
+  PreviewKind,
   JobSettings,
   MediaKind,
   MediaRef,
@@ -390,7 +391,7 @@ export class PreviewService {
 
   private start(
     id: string,
-    kind: 'proxy' | 'settings',
+    kind: PreviewKind,
     sourceKey: string,
     out: string,
     args: string[],
@@ -406,7 +407,7 @@ export class PreviewService {
 
   private startPasses(
     id: string,
-    kind: 'proxy' | 'settings',
+    kind: PreviewKind,
     sourceKey: string,
     out: string,
     passes: string[][],

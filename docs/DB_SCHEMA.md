@@ -15,6 +15,8 @@ SQLite 파일: `<userData>/videoslim.sqlite` (Windows 기본: `%APPDATA%/VideoSl
 | ---- | ----------------------------------------------------- |
 | 1    | `jobs`, `job_events`, `settings` 테이블               |
 | 2    | `jobs.recommendation_json` 컬럼 (샘플 품질 추천 결과) |
+| 3    | 미디어 라이브러리 테이블 (아래 절)                    |
+| 4    | `edit_projects` (영상 편집 프로젝트, JSON 전체 저장)  |
 
 ## 테이블
 

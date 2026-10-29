@@ -13,6 +13,13 @@ import { formatBytes, formatDuration } from '../format';
 import { Button, ProgressBar } from '../components/ui';
 import { MediaGrid, invalidateThumbCaches } from './MediaGrid';
 import { MediaDetail } from './MediaDetail';
+import {
+  DETAIL_PRESETS,
+  clampDetailWidth,
+  readDetailWidth,
+  saveDetailWidth,
+  type DetailWidth,
+} from './detailWidth';
 import { LABEL_COLORS, LABEL_NAMES, libraryApi } from './libraryActions';
 
 const PAGE = 300;
@@ -51,6 +58,32 @@ export function LibraryPage({
   const [tags, setTags] = useState<{ name: string; count: number }[]>([]);
   const [dupes, setDupes] = useState<DuplicateGroup[] | null>(null);
   const [includeSub, setIncludeSub] = useState<boolean>(settings?.includeSubfoldersDefault ?? true);
+  // 상세(미리보기) 패널 너비: 프리셋 스위치 또는 드래그 핸들로 조절하고 브라우저 저장소에 기억한다
+  const [detailWidth, setDetailWidth] = useState<DetailWidth>(() => readDetailWidth());
+  const setDetail = (w: DetailWidth): void => {
+    setDetailWidth(w);
+    saveDetailWidth(w);
+  };
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+  const onHandleDown = (e: React.MouseEvent): void => {
+    e.preventDefault();
+    const startW = detailWidth === 'max' ? DETAIL_PRESETS.l : detailWidth;
+    dragRef.current = { startX: e.clientX, startW };
+    const move = (ev: MouseEvent): void => {
+      const d = dragRef.current;
+      if (!d) return;
+      setDetailWidth(clampDetailWidth(d.startW + (d.startX - ev.clientX)));
+    };
+    const up = (ev: MouseEvent): void => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      if (d) setDetail(clampDetailWidth(d.startW + (d.startX - ev.clientX)));
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
   const loadingRef = useRef(false);
   const wasIndexing = useRef(false);
 
@@ -225,8 +258,10 @@ export function LibraryPage({
         )}
       </nav>
 
-      {/* 가운데: 필터 + 그리드 */}
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+      {/* 가운데: 필터 + 그리드. 상세가 '최대'이면 숨긴다 */}
+      <div
+        className={`flex min-w-0 flex-1 flex-col gap-2 ${selectedItem && detailWidth === 'max' ? 'hidden' : ''}`}
+      >
         <FilterBar query={query} onChange={setQuery} tags={tags} view={view} onView={setView} />
         <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--c-muted)]">
           <span>
@@ -262,14 +297,28 @@ export function LibraryPage({
       </div>
 
       {selectedItem && (
-        <MediaDetail
-          key={selectedItem.id}
-          item={selectedItem}
-          onChanged={patchItem}
-          onClose={() => setSelected(new Set())}
-          onCompare={onCompare}
-          onEdit={onEdit}
-        />
+        <>
+          {detailWidth !== 'max' && (
+            <div
+              role="separator"
+              aria-label="미리보기 크기 조절"
+              aria-orientation="vertical"
+              title="끌어서 미리보기 크기 조절"
+              onMouseDown={onHandleDown}
+              className="w-1.5 shrink-0 cursor-col-resize rounded bg-[var(--c-border)] hover:bg-[var(--c-accent)]"
+            />
+          )}
+          <MediaDetail
+            key={selectedItem.id}
+            item={selectedItem}
+            onChanged={patchItem}
+            onClose={() => setSelected(new Set())}
+            onCompare={onCompare}
+            onEdit={onEdit}
+            width={detailWidth}
+            onWidth={setDetail}
+          />
+        </>
       )}
     </div>
   );

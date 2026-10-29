@@ -4,8 +4,11 @@
 import { call } from '../api';
 import { errorText, notify, refreshJobs } from '../stores/appStore';
 import type {
+  EditProject,
+  EditRenderMode,
   ImageEditOps,
   ImageExportRequest,
+  ImageExportTarget,
   LibraryItem,
   LibraryQuery,
   MediaLabel,
@@ -104,6 +107,29 @@ export const libraryApi = {
   imageExport: (req: ImageExportRequest) => run('이미지 저장', () => call('image:export', req)),
   imagePickSavePath: (defaultName: string, format: 'jpeg' | 'png' | 'webp') =>
     run('저장 위치 선택', () => call('image:pickSavePath', { defaultName, format })),
+  // ----- 영상 편집기 -----
+  editProjects: () => run('프로젝트 목록', () => call('edit:projects.list')),
+  editCreate: (name: string) => run('프로젝트 만들기', () => call('edit:project.create', { name })),
+  editGet: (id: string) => run('프로젝트 열기', () => call('edit:project.get', { id })),
+  editSave: (project: EditProject) =>
+    run('프로젝트 저장', () => call('edit:project.save', { project })),
+  editDelete: (id: string) => run('프로젝트 삭제', () => call('edit:project.delete', { id })),
+  editProbe: (path: string) => run('파일 확인', () => call('edit:source.probe', { path })),
+  editPickMedia: (kind: 'video' | 'audio' | 'image') =>
+    run('파일 선택', () => call('edit:pickMedia', { kind })),
+  editFrame: async (path: string, timeSec: number): Promise<string | null> => {
+    try {
+      return (await call('edit:frame', { path, timeSec })).url;
+    } catch {
+      return null;
+    }
+  },
+  editRender: (projectId: string, mode: EditRenderMode, target: ImageExportTarget | null) =>
+    run('렌더 시작', () => call('edit:render', { projectId, mode, target })),
+  editRenderCancel: (renderId: string) =>
+    run('렌더 취소', () => call('edit:render.cancel', { renderId })),
+  editPickExportPath: (defaultName: string, ext: 'mp4' | 'mkv') =>
+    run('내보내기 위치', () => call('edit:pickExportPath', { defaultName, ext })),
   captureSources: () => run('캡처 대상 목록', () => call('capture:sources')),
   captureTake: (sourceId: string, delaySec: number, hideApp: boolean) =>
     run('화면 캡처', () => call('capture:take', { sourceId, delaySec, hideApp })),

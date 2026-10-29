@@ -6,6 +6,7 @@
  * - 압축 연결은 jobs.input_path_key 와의 조인으로 계산한다 (별도 저장 없음).
  */
 import type {
+  PreviewKind,
   CompressionLink,
   JobStatus,
   LibraryItem,
@@ -448,7 +449,7 @@ export class LibraryRepository {
 
   insertPreview(p: {
     id: string;
-    kind: 'proxy' | 'settings';
+    kind: PreviewKind;
     sourceKey: string;
     file: string;
     bytes: number;
@@ -579,7 +580,7 @@ export class LibraryRepository {
 
 export interface PreviewRow {
   id: string;
-  kind: 'proxy' | 'settings';
+  kind: PreviewKind;
   source_key: string;
   file: string;
   bytes: number;

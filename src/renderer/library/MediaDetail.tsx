@@ -4,6 +4,7 @@ import { MEDIA_LABELS } from '../../shared/types/domain';
 import { formatBytes, formatDuration, formatSavings } from '../format';
 import { Button } from '../components/ui';
 import { MediaPlayer } from './MediaPlayer';
+import { DETAIL_PRESETS, type DetailWidth } from './detailWidth';
 import { LABEL_COLORS, LABEL_NAMES, libraryApi } from './libraryActions';
 
 /** 오른쪽 상세 패널: 미리보기·재생, 정보, 평점·라벨·태그·메모, 압축 연결 */
@@ -13,12 +14,17 @@ export function MediaDetail({
   onClose,
   onCompare,
   onEdit,
+  width,
+  onWidth,
 }: {
   item: LibraryItem;
   onChanged: (it: LibraryItem) => void;
   onClose: () => void;
   onCompare: (jobId: string) => void;
   onEdit: (path: string) => void;
+  /** 패널 너비 (px) 또는 '최대' */
+  width: DetailWidth;
+  onWidth: (w: DetailWidth) => void;
 }): ReactNode {
   const [tagsText, setTagsText] = useState(item.tags.join(', '));
   const [note, setNote] = useState(item.note ?? '');
@@ -31,7 +37,8 @@ export function MediaDetail({
   return (
     <aside
       aria-label="미디어 상세"
-      className="flex h-full w-[440px] shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-[var(--c-border)] bg-[var(--c-surface)] p-3"
+      style={width === 'max' ? undefined : { width }}
+      className={`flex h-full shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-[var(--c-border)] bg-[var(--c-surface)] p-3 ${width === 'max' ? 'flex-1' : ''}`}
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -42,9 +49,41 @@ export function MediaDetail({
             {item.parentDir}
           </p>
         </div>
-        <Button onClick={onClose} aria-label="상세 닫기">
-          닫기
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <div
+            role="radiogroup"
+            aria-label="미리보기 크기"
+            className="flex overflow-hidden rounded border border-[var(--c-border)] text-xs"
+          >
+            {(
+              [
+                ['s', '작게'],
+                ['m', '보통'],
+                ['l', '크게'],
+                ['max', '최대'],
+              ] as const
+            ).map(([k, label]) => {
+              const value: DetailWidth = k === 'max' ? 'max' : DETAIL_PRESETS[k];
+              const active = width === value;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={`미리보기 ${label}`}
+                  onClick={() => onWidth(value)}
+                  className={`px-2 py-1 ${active ? 'bg-[var(--c-accent)] text-[var(--c-accent-text)]' : 'hover:bg-[var(--c-surface-2)]'}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <Button onClick={onClose} aria-label="상세 닫기">
+            닫기
+          </Button>
+        </div>
       </header>
 
       {item.missing ? (

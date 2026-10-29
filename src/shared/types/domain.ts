@@ -521,9 +521,12 @@ export interface MediaSource {
   fileName: string;
 }
 
+/** proxy: 미리보기 변환본, settings: 설정 미리보기, editProxy: 편집 미리보기 렌더, edit: 편집 내보내기 결과 */
+export type PreviewKind = 'proxy' | 'settings' | 'editProxy' | 'edit';
+
 export interface PreviewAsset {
   id: string;
-  kind: 'proxy' | 'settings';
+  kind: PreviewKind;
   /** 원본 항목 또는 작업 ID */
   sourceKey: string;
   url: string;
@@ -676,4 +679,186 @@ export interface CaptureResult {
   width: number;
   height: number;
   sizeBytes: number;
+}
+
+// ---------------------------------------------------------------------------
+// 영상 편집기 (1.4.0)
+// ---------------------------------------------------------------------------
+
+export const TRANSITIONS = [
+  'none',
+  'fade',
+  'dissolve',
+  'wipeleft',
+  'wiperight',
+  'slideleft',
+  'slideright',
+  'circleopen',
+  'fadeblack',
+] as const;
+export type TransitionType = (typeof TRANSITIONS)[number];
+export const TRANSITION_LABELS: Readonly<Record<TransitionType, string>> = {
+  none: '없음 (바로 이어붙임)',
+  fade: '페이드',
+  dissolve: '디졸브',
+  wipeleft: '왼쪽으로 닦기',
+  wiperight: '오른쪽으로 닦기',
+  slideleft: '왼쪽으로 밀기',
+  slideright: '오른쪽으로 밀기',
+  circleopen: '원 열림',
+  fadeblack: '검정 페이드',
+};
+
+export const CANVAS_PRESETS = [
+  'auto',
+  '1080p',
+  '720p',
+  '4k',
+  'vertical1080',
+  'square1080',
+] as const;
+export type CanvasPreset = (typeof CANVAS_PRESETS)[number];
+export const EDIT_FPS = ['auto', 24, 30, 60] as const;
+export type EditFps = (typeof EDIT_FPS)[number];
+export const TEXT_X = ['left', 'center', 'right'] as const;
+export const TEXT_Y = ['top', 'middle', 'bottom'] as const;
+export const WATERMARK_POSITIONS = [
+  'topleft',
+  'topright',
+  'bottomleft',
+  'bottomright',
+  'center',
+] as const;
+export type WatermarkPosition = (typeof WATERMARK_POSITIONS)[number];
+export const EDIT_PRESETS = ['veryfast', 'medium', 'slow'] as const;
+
+export interface EditTextOverlay {
+  id: string;
+  text: string;
+  x: (typeof TEXT_X)[number];
+  y: (typeof TEXT_Y)[number];
+  /** 캔버스 높이 1080 기준 픽셀 크기. 캔버스에 맞춰 비례 조정한다 */
+  fontSize: number;
+  color: string;
+  /** 반투명 검정 배경 상자 */
+  boxed: boolean;
+  /** 클립 안의 표시 구간 (속도 적용 후 시간, 초). endSec 가 null 이면 클립 끝까지 */
+  startSec: number;
+  endSec: number | null;
+}
+
+export interface EditClipFilters {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  sharpen: number;
+  denoise: number;
+}
+
+export interface EditClip {
+  id: string;
+  path: string;
+  fileName: string;
+  /** 원본 길이·해상도·음성 유무 (등록 시 ffprobe 결과) */
+  sourceDurationSec: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  hasAudio: boolean;
+  /** 원본 기준 사용 구간 (초) */
+  inSec: number;
+  outSec: number;
+  /** 0.25 ~ 4. 음성도 같은 비율로 빨라지거나 느려진다 (음높이 유지) */
+  speed: number;
+  /** 0 ~ 2 */
+  volume: number;
+  mute: boolean;
+  rotate: Rotation;
+  flipH: boolean;
+  flipV: boolean;
+  filters: EditClipFilters;
+  /** 손떨림 보정 (vidstab 2-pass). 렌더 시간이 늘어난다 */
+  stabilize: boolean;
+  /** 다음 클립으로 넘어가는 전환 */
+  transition: { type: TransitionType; durationSec: number };
+  texts: EditTextOverlay[];
+}
+
+export interface EditMusic {
+  path: string;
+  fileName: string;
+  sourceDurationSec: number;
+  volume: number;
+  fadeInSec: number;
+  fadeOutSec: number;
+  /** 영상보다 짧으면 반복 */
+  loop: boolean;
+  /** 원본 클립 음성을 얼마나 남길지 (0 = 음악만, 1 = 그대로) */
+  originalMix: number;
+}
+
+export interface EditWatermark {
+  path: string;
+  fileName: string;
+  position: WatermarkPosition;
+  /** 0.05 ~ 1: 캔버스 너비 대비 로고 너비 */
+  scale: number;
+  /** 0 ~ 1 */
+  opacity: number;
+}
+
+export interface EditOutput {
+  container: OutputContainer;
+  codec: VideoCodec;
+  crf: number;
+  preset: (typeof EDIT_PRESETS)[number];
+}
+
+export interface EditProject {
+  id: string;
+  name: string;
+  clips: EditClip[];
+  music: EditMusic | null;
+  watermark: EditWatermark | null;
+  canvas: { preset: CanvasPreset; fps: EditFps };
+  output: EditOutput;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EditProjectSummary {
+  id: string;
+  name: string;
+  clipCount: number;
+  durationSec: number;
+  updatedAt: string;
+}
+
+/** 파일을 클립으로 등록하기 위한 ffprobe 결과 */
+export interface EditSourceInfo {
+  path: string;
+  fileName: string;
+  kind: 'video' | 'audio' | 'image';
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+  hasAudio: boolean;
+  hasVideo: boolean;
+}
+
+export type EditRenderMode = 'proxy' | 'export';
+
+export interface EditRenderProgress {
+  renderId: string;
+  projectId: string;
+  mode: EditRenderMode;
+  status: 'running' | 'done' | 'failed' | 'cancelled';
+  /** 현재 단계 설명 (손떨림 분석 1/2, 렌더링 등) */
+  stage: string;
+  ratio: number | null;
+  etaSec: number | null;
+  /** 완료 시: 내보내기 파일 경로 (export) */
+  outputPath: string | null;
+  /** 완료 시: 앱에서 재생할 수 있는 previews 행 ID */
+  previewId: string | null;
+  error: string | null;
 }

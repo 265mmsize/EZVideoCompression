@@ -28,6 +28,10 @@ export interface DialogPort {
   pickImage: () => Promise<string | null>;
   /** 편집 결과 저장 위치 선택 */
   saveImageAs: (defaultName: string, ext: string) => Promise<string | null>;
+  /** 영상 편집기: 클립·음악·워터마크 파일 선택 (여러 개) */
+  pickMedia: (kind: 'video' | 'audio' | 'image') => Promise<string[] | null>;
+  /** 영상 편집기: 내보내기 위치 선택 */
+  saveVideoAs: (defaultName: string, ext: string) => Promise<string | null>;
 }
 
 /** 화면 캡처는 Electron 창·desktopCapturer 에 묶이므로 메인 진입점이 주입한다 (테스트에서는 없음) */
@@ -177,6 +181,25 @@ export function registerIpc(deps: IpcDeps): void {
     'image:export': (req) => s.imageEdit.exportImage(req),
     'image:pickSavePath': async ({ defaultName, format }) => {
       const p = await dialogs.saveImageAs(defaultName, format === 'jpeg' ? 'jpg' : format);
+      return p ? { path: p } : null;
+    },
+    'edit:projects.list': () => s.videoEdit.list(),
+    'edit:project.create': ({ name }) => s.videoEdit.create(name),
+    'edit:project.get': ({ id }) => s.videoEdit.get(id),
+    'edit:project.save': ({ project }) => s.videoEdit.save(project),
+    'edit:project.delete': ({ id }) => ({ removed: s.videoEdit.delete(id) }),
+    'edit:source.probe': ({ path }) => s.videoEdit.probeSource(path),
+    'edit:pickMedia': async ({ kind }) => {
+      const paths = await dialogs.pickMedia(kind);
+      return paths ? { paths } : null;
+    },
+    'edit:frame': ({ path, timeSec }) => s.videoEdit.frame(path, timeSec),
+    'edit:render': ({ projectId, mode, target }) => ({
+      renderId: s.videoEdit.render(projectId, mode, target),
+    }),
+    'edit:render.cancel': ({ renderId }) => ({ cancelled: s.videoEdit.cancel(renderId) }),
+    'edit:pickExportPath': async ({ defaultName, ext }) => {
+      const p = await dialogs.saveVideoAs(defaultName, ext);
       return p ? { path: p } : null;
     },
     'capture:sources': () => requireCapture().sources(),

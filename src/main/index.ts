@@ -154,6 +154,44 @@ function bootstrap(): void {
         : await dialog.showSaveDialog(options);
       return res.canceled ? null : res.filePath;
     },
+    pickMedia: async (kind) => {
+      const filters: Electron.FileFilter[] =
+        kind === 'video'
+          ? [VIDEO_FILTER]
+          : kind === 'audio'
+            ? [
+                {
+                  name: '음악·음성',
+                  extensions: ['mp3', 'aac', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'wma'],
+                },
+              ]
+            : [{ name: '이미지', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }];
+      const options: Electron.OpenDialogOptions = {
+        title:
+          kind === 'video'
+            ? '클립으로 추가할 영상 선택'
+            : kind === 'audio'
+              ? '배경 음악 선택'
+              : '워터마크 이미지 선택',
+        properties: kind === 'video' ? ['openFile', 'multiSelections'] : ['openFile'],
+        filters: [...filters, { name: '모든 파일', extensions: ['*'] }],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return res.canceled ? null : res.filePaths;
+    },
+    saveVideoAs: async (defaultName, ext) => {
+      const options: Electron.SaveDialogOptions = {
+        title: '편집 영상 내보내기 (기존 파일은 덮어쓰지 않고 번호를 붙입니다)',
+        defaultPath: defaultName,
+        filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+      };
+      const res = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options);
+      return res.canceled ? null : res.filePath;
+    },
     saveLogFile: async (defaultName) => {
       const options: Electron.SaveDialogOptions = {
         title: '지원용 로그 내보내기',

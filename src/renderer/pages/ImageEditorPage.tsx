@@ -845,11 +845,17 @@ function CaptureDialog({
                 onClick={() => setSelected(s.id)}
                 className={`rounded border p-1 text-left ${selected === s.id ? 'border-[var(--c-accent)]' : 'border-[var(--c-border)]'}`}
               >
-                <img
-                  src={s.thumbnailDataUrl}
-                  alt=""
-                  className="h-24 w-full object-contain bg-black"
-                />
+                {s.thumbnailDataUrl ? (
+                  <img
+                    src={s.thumbnailDataUrl}
+                    alt=""
+                    className="h-24 w-full bg-black object-contain"
+                  />
+                ) : (
+                  <div className="flex h-24 w-full items-center justify-center bg-black text-xs text-white/60">
+                    미리보기 없음
+                  </div>
+                )}
                 <span className="mt-1 block truncate text-xs">
                   {s.kind === 'screen' ? '화면' : '창'} · {s.name}
                 </span>

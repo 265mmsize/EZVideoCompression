@@ -11,6 +11,12 @@ import type {
   CacheStats,
   CaptureResult,
   CaptureSource,
+  EditProject,
+  EditProjectSummary,
+  EditRenderMode,
+  EditRenderProgress,
+  EditSourceInfo,
+  ImageExportTarget,
   CompressionMode,
   DuplicateGroup,
   ImageEditOps,
@@ -179,6 +185,33 @@ export interface InvokeContract {
     request: { sourceId: string; delaySec: number; hideApp: boolean };
     response: CaptureResult;
   };
+
+  // ----- 영상 편집기 (1.4.0) -----
+  'edit:projects.list': { request: void; response: EditProjectSummary[] };
+  'edit:project.create': { request: { name: string }; response: EditProject };
+  'edit:project.get': { request: { id: string }; response: EditProject };
+  /** 프로젝트 전체를 저장한다 (자동 저장). 반환값은 저장된 상태 */
+  'edit:project.save': { request: { project: EditProject }; response: EditProject };
+  'edit:project.delete': { request: { id: string }; response: { removed: boolean } };
+  /** 클립·음악·워터마크로 쓸 파일 정보 (ffprobe) */
+  'edit:source.probe': { request: { path: string }; response: EditSourceInfo };
+  /** 파일 대화상자로 미디어 선택 (여러 개) */
+  'edit:pickMedia': {
+    request: { kind: 'video' | 'audio' | 'image' };
+    response: { paths: string[] } | null;
+  };
+  /** 원본 파일의 특정 시점 프레임 (효과 미적용) */
+  'edit:frame': { request: { path: string; timeSec: number }; response: { url: string } };
+  /** 렌더 시작. 진행은 edit:render.progress 이벤트 */
+  'edit:render': {
+    request: { projectId: string; mode: EditRenderMode; target: ImageExportTarget | null };
+    response: { renderId: string };
+  };
+  'edit:render.cancel': { request: { renderId: string }; response: { cancelled: boolean } };
+  'edit:pickExportPath': {
+    request: { defaultName: string; ext: string };
+    response: { path: string } | null;
+  };
 }
 
 /** 메인 → 렌더러 푸시 이벤트 */
@@ -190,6 +223,7 @@ export interface EventContract {
   'library:indexing': IndexingState;
   'library:item.changed': LibraryItem;
   'library:preview.progress': PreviewProgress;
+  'edit:render.progress': EditRenderProgress;
 }
 
 export type InvokeChannel = keyof InvokeContract;
@@ -269,6 +303,17 @@ export const CHANNEL_NAMES = {
     'image:pickSavePath',
     'capture:sources',
     'capture:take',
+    'edit:projects.list',
+    'edit:project.create',
+    'edit:project.get',
+    'edit:project.save',
+    'edit:project.delete',
+    'edit:source.probe',
+    'edit:pickMedia',
+    'edit:frame',
+    'edit:render',
+    'edit:render.cancel',
+    'edit:pickExportPath',
   ] satisfies InvokeChannel[],
   events: [
     'job:changed',
@@ -278,6 +323,7 @@ export const CHANNEL_NAMES = {
     'library:indexing',
     'library:item.changed',
     'library:preview.progress',
+    'edit:render.progress',
   ] satisfies EventChannel[],
 } as const;
 

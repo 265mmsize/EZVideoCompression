@@ -26,6 +26,8 @@ import { MediaTokenRegistry } from './services/library/MediaTokenRegistry';
 import { PreviewService } from './services/library/PreviewService';
 import { ThumbnailService } from './services/library/ThumbnailService';
 import { ImageEditService } from './services/image/ImageEditService';
+import { EditProjectRepository } from './repositories/EditProjectRepository';
+import { VideoEditService, findDefaultFont } from './services/edit/VideoEditService';
 import type { EventChannel } from '../shared/contracts/ipc';
 
 export interface ContainerOptions {
@@ -55,6 +57,7 @@ export interface AppServices {
   indexer: LibraryIndexer;
   previews: PreviewService;
   imageEdit: ImageEditService;
+  videoEdit: VideoEditService;
   tokens: MediaTokenRegistry;
   /** 마지막 탐지 결과 */
   toolStatus: () => ToolStatus | null;
@@ -169,6 +172,21 @@ export function createServices(opts: ContainerOptions): AppServices {
     logger,
     limitBytes,
   });
+  const videoEdit = new VideoEditService({
+    repo: new EditProjectRepository(db),
+    library: libraryRepo,
+    probe,
+    proc,
+    tools: requireTools,
+    thumbs,
+    tokens,
+    previewDir: path.join(opts.userDataDir, 'previews'),
+    tempRoot,
+    logger,
+    emit: (p) => opts.emit('edit:render.progress', p),
+    indexFile: (p) => library.indexFile(p),
+    fontFile: () => findDefaultFont(),
+  });
   const imageEdit = new ImageEditService({
     proc,
     probe,
@@ -194,6 +212,7 @@ export function createServices(opts: ContainerOptions): AppServices {
     indexer,
     previews,
     imageEdit,
+    videoEdit,
     tokens,
     toolStatus: () => status,
     refreshTools: () => {
@@ -228,6 +247,7 @@ export function createServices(opts: ContainerOptions): AppServices {
     logsDir,
     close: async () => {
       indexer.cancel();
+      videoEdit.shutdown();
       previews.shutdown();
       await queue.shutdown();
       await indexer.idle();

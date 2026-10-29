@@ -34,14 +34,13 @@ export class ScreenCaptureService {
       thumbnailSize: LIST_THUMB,
       fetchWindowIcons: false,
     });
-    return list
-      .filter((s) => !s.thumbnail.isEmpty())
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        kind: s.id.startsWith('screen:') ? 'screen' : 'window',
-        thumbnailDataUrl: s.thumbnail.toDataURL(),
-      }));
+    // 썸네일이 아직 비어 있어도(화면 갱신 직후 등) 대상 자체는 보여 준다. 빈 썸네일은 빈 문자열로 표시한다.
+    return list.map((s) => ({
+      id: s.id,
+      name: s.name,
+      kind: s.id.startsWith('screen:') ? 'screen' : 'window',
+      thumbnailDataUrl: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL(),
+    }));
   }
 
   async take(sourceId: string, delaySec: number, hideApp: boolean): Promise<CaptureResult> {
@@ -51,9 +50,14 @@ export class ScreenCaptureService {
       // 창을 숨겼으면 화면이 갱신될 시간을 조금 준다
       const waitMs = Math.max(delaySec * 1000, hideApp ? 600 : 0);
       if (waitMs > 0) await sleep(waitMs);
-      const image = await this.grab(sourceId);
+      // 화면 갱신 직후에는 빈 이미지가 올 수 있어 짧게 몇 번 다시 시도한다
+      let image = await this.grab(sourceId);
+      for (let attempt = 0; attempt < 3 && image.isEmpty(); attempt++) {
+        await sleep(300);
+        image = await this.grab(sourceId);
+      }
       const size = image.getSize();
-      if (size.width === 0 || size.height === 0) {
+      if (image.isEmpty() || size.width === 0 || size.height === 0) {
         throw new AppError('CAPTURE_FAILED', '빈 이미지가 돌아왔습니다');
       }
       fs.mkdirSync(this.deps.dir, { recursive: true });

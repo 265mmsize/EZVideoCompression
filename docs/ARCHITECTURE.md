@@ -27,6 +27,8 @@ services/
   FFmpegProcessService.ts 프로세스 실행 (인자 배열, shell 없음, 진행률 파싱, 취소·타임아웃·멈춤 감지)
   MediaProbeService.ts    ffprobe JSON → ProbeResult (추측값은 unknown/estimated 로 표시)
   CapabilityService.ts    지원/제한/차단 판정, 트랙별 처리 정책, 목표 용량 계산 (순수 함수)
+  edit/EditGraphBuilder.ts     편집 프로젝트 → filter_complex 렌더 계획 (순수 함수: 전환 오프셋, atempo 체인, drawtext, amix, overlay, vidstab)
+  edit/VideoEditService.ts     프로젝트 CRUD, 소스 확인, 프레임, 손떨림 분석 패스 → 본 렌더 → ffprobe 검증 → 확정, 진행 이벤트
   image/ImageEditService.ts    이미지 편집: 필터 체인 생성(순수), 미리보기(축소본), 저장(임시 → ffprobe 검증 → 번호 붙여 확정)
   image/ScreenCaptureService.ts  desktopCapturer 로 화면·창 캡처 → PNG (메인 진입점에서만 생성, 컨테이너는 Electron 비의존)
   ExternalSubtitleService.ts   같은 폴더의 자막 파일 감지(ffprobe 형식 확인, 인코딩 판정)와 인코딩 전 UTF-8 복사본 준비
