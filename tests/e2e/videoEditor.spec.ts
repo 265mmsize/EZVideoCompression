@@ -88,3 +88,22 @@ test('클립을 추가해 분할하고 전환·텍스트를 넣어 내보내면 
   // 원본은 그대로
   expect(fs.existsSync(clipPath)).toBe(true);
 });
+
+test('실행 취소로 분할을 되돌리고 다시 실행으로 복구한다', async () => {
+  await page.getByRole('button', { name: '영상 편집' }).click();
+  // 앞 테스트에서 열어 둔 프로젝트가 있으면 목록으로 돌아간다
+  const back = page.getByRole('button', { name: '← 프로젝트 목록' });
+  if (await back.count()) await back.click();
+  await page.getByRole('button', { name: '새 프로젝트' }).click();
+  await page.getByRole('button', { name: '클립 추가' }).click();
+  const timeline = page.getByRole('list', { name: '타임라인' });
+  await expect(timeline.getByRole('listitem')).toHaveCount(1, { timeout: 30_000 });
+  await page.getByRole('slider', { name: '재생 헤드' }).fill('1');
+  await page.getByRole('button', { name: '재생 헤드에서 분할' }).click();
+  await expect(timeline.getByRole('listitem')).toHaveCount(2);
+
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect(timeline.getByRole('listitem')).toHaveCount(1);
+  await page.getByRole('button', { name: '다시 실행' }).click();
+  await expect(timeline.getByRole('listitem')).toHaveCount(2);
+});

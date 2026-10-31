@@ -22,6 +22,7 @@ import {
   type Rotation,
 } from '../../shared/types/domain';
 import { subscribe } from '../api';
+import { emptyHistory, recordChange, redo, undo, type History } from './historyStack';
 import { Button } from '../components/ui';
 import { formatDuration } from '../format';
 import { libraryApi } from '../library/libraryActions';
@@ -84,6 +85,9 @@ function locate(clips: EditClip[], time: number): { index: number; sourceSec: nu
 export function VideoEditorPage(): ReactNode {
   const [projects, setProjects] = useState<EditProjectSummary[]>([]);
   const [project, setProject] = useState<EditProject | null>(null);
+  const projRef = useRef<EditProject | null>(null);
+  const hist = useRef<History<EditProject>>(emptyHistory());
+  const [histCount, setHistCount] = useState({ u: 0, r: 0 });
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
   const [playhead, setPlayhead] = useState(0);
   const [pxPerSec, setPxPerSec] = useState(PX_PER_SEC_DEFAULT);
@@ -131,17 +135,74 @@ export function VideoEditorPage(): ReactNode {
     return () => clearTimeout(t);
   }, [project, refreshList]);
 
-  const update = (fn: (p: EditProject) => EditProject): void => {
-    dirty.current = true;
-    setProject((p) => (p ? fn(p) : p));
+  /** 프로젝트 상태를 바꾸는 유일한 통로. 실행 취소 스택에 변경 전 상태를 남긴다. */
+  const commit = (next: EditProject | null, record: boolean, key: string | null = null): void => {
+    const cur = projRef.current;
+    if (record && cur && next) {
+      hist.current = recordChange(hist.current, cur, Date.now(), key);
+      setHistCount({ u: hist.current.past.length, r: hist.current.future.length });
+    }
+    if (next) dirty.current = true;
+    projRef.current = next;
+    setProject(next);
   };
+  /** key 가 같은 연속 변경(슬라이더 등)은 한 단계로 묶는다. 생략하면 변경마다 한 단계다. */
+  const update = (fn: (p: EditProject) => EditProject, key: string | null = null): void => {
+    const cur = projRef.current;
+    if (!cur) return;
+    const next = fn(cur);
+    if (next === cur) return;
+    commit(next, true, key);
+  };
+  const doUndo = (): void => {
+    const cur = projRef.current;
+    if (!cur) return;
+    const r = undo(hist.current, cur);
+    if (!r) return;
+    hist.current = r.history;
+    commit(r.state, false);
+    setHistCount({ u: hist.current.past.length, r: hist.current.future.length });
+  };
+  const doRedo = (): void => {
+    const cur = projRef.current;
+    if (!cur) return;
+    const r = redo(hist.current, cur);
+    if (!r) return;
+    hist.current = r.history;
+    commit(r.state, false);
+    setHistCount({ u: hist.current.past.length, r: hist.current.future.length });
+  };
+
+  // 실행 취소 단축키 (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z). 입력칸에서는 브라우저 기본 동작을 쓴다.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        doUndo();
+      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        doRedo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // doUndo/doRedo 는 ref 와 안정적인 setState 만 쓰므로 한 번만 등록한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const updateClip = (id: string, patch: Partial<EditClip> | ((c: EditClip) => EditClip)): void => {
-    update((p) => ({
-      ...p,
-      clips: p.clips.map((c) =>
-        c.id === id ? (typeof patch === 'function' ? patch(c) : { ...c, ...patch }) : c,
-      ),
-    }));
+    update(
+      (p) => ({
+        ...p,
+        clips: p.clips.map((c) =>
+          c.id === id ? (typeof patch === 'function' ? patch(c) : { ...c, ...patch }) : c,
+        ),
+      }),
+      `clip:${id}`,
+    );
   };
 
   const clips = useMemo(() => project?.clips ?? [], [project]);
@@ -168,6 +229,9 @@ export function VideoEditorPage(): ReactNode {
     const p = await libraryApi.editGet(id);
     if (!p) return;
     dirty.current = false;
+    hist.current = emptyHistory();
+    setHistCount({ u: 0, r: 0 });
+    projRef.current = p;
     setProject(p);
     setSelectedClip(p.clips[0]?.id ?? null);
     setPlayhead(0);
@@ -183,6 +247,7 @@ export function VideoEditorPage(): ReactNode {
   const removeProject = async (): Promise<void> => {
     if (!project) return;
     await libraryApi.editDelete(project.id);
+    projRef.current = null;
     setProject(null);
     await refreshList();
   };
@@ -355,17 +420,24 @@ export function VideoEditorPage(): ReactNode {
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
         <Button
           onClick={() => {
+            projRef.current = null;
             setProject(null);
             void refreshList();
           }}
         >
           ← 프로젝트 목록
         </Button>
+        <Button onClick={doUndo} disabled={histCount.u === 0} aria-label="실행 취소">
+          실행 취소
+        </Button>
+        <Button onClick={doRedo} disabled={histCount.r === 0} aria-label="다시 실행">
+          다시 실행
+        </Button>
         <input
           aria-label="프로젝트 이름"
           className="rounded border border-[var(--c-border)] bg-[var(--c-surface)] px-2 py-1 font-medium"
           value={project.name}
-          onChange={(e) => update((p) => ({ ...p, name: e.target.value }))}
+          onChange={(e) => update((p) => ({ ...p, name: e.target.value }), 'name')}
         />
         <Button variant="primary" onClick={() => void addClips()}>
           클립 추가

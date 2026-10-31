@@ -21,11 +21,11 @@
 | `npm run lint`                                     | 통과 (strict type-checked ESLint)                                                                                                               |
 | `npm run format:check`                             | 통과 (Prettier)                                                                                                                                 |
 | `npm run build`                                    | 통과 (main 120 kB, preload 2 kB, renderer 약 636 kB)                                                                                            |
-| `npm test` (단위 + 통합)                           | **155/155 통과** (18개 파일)                                                                                                                    |
-| `npm run test:e2e`                                 | **12/12 통과** (앱 4개 + 라이브러리 4개 + 이미지 편집기 2개 + 영상 편집기 1개 + 패키지 앱 1개)                                                  |
+| `npm test` (단위 + 통합)                           | **166/166 통과** (19개 파일)                                                                                                                    |
+| `npm run test:e2e`                                 | **13/13 통과** (앱 4개 + 라이브러리 4개 + 이미지 편집기 2개 + 영상 편집기 2개 + 패키지 앱 1개)                                                  |
 | `npm run pack:linux-dir`                           | 통과 (asar 에 런타임 의존성 포함, 패키지 앱 기동 확인)                                                                                          |
-| `npm run pack:win` (Linux + wine64/wine32 + xvfb)  | **통과**: 1.4.0 NSIS 설치 파일과 포터블 생성                                                                                                    |
-| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.4.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
+| `npm run pack:win` (Linux + wine64/wine32 + xvfb)  | **통과**: 1.5.0 NSIS 설치 파일과 포터블 생성                                                                                                    |
+| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.5.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
 | wine 무인 설치 (`Setup.exe /S`)                    | **실패**: 코드 2 로 즉시 종료, 파일 미배치 (1.0.0 에서 확인한 wine 호환성 문제, 그 뒤 재시도하지 않음). 설치 동작 검증은 Windows 에서 해야 한다 |
 | `npm audit --omit=dev`                             | 취약점 0건 (운영 의존성 기준)                                                                                                                   |
 | `npm audit` (개발 도구 포함)                       | 중간 등급 8건. 개발 도구(electron-builder 등)의 전이 의존성이며 배포 파일에는 포함되지 않는다. 업그레이드 검토 필요                             |
@@ -44,6 +44,7 @@
 | `tests/unit/externalSubtitles.test.ts` | 10/10 | 자막 후보 선택(태그·대소문자·상한), 언어 태그, 인코딩 판정(UTF-8/UTF-16 BOM 유무/CP949/불명), 컨테이너별 결정, FFmpeg 인자 순번·메타데이터                                                                                                          |
 | `tests/unit/imageEdit.test.ts`         | 9/9   | 결과 크기 계산(자르기·회전·미세 회전 반올림·크기), 자르기 경계, 필터 체인 순서와 인자, 형식 결정, JPEG/PNG/WebP 인코더 인자                                                                                                                         |
 | `tests/unit/editGraph.test.ts`         | 10/10 | 클립 길이·전환 겹침·위치 변환, 캔버스 결정(auto·프리셋·미리보기 640), atempo 체인, 필터 인자 이스케이프, 단일 클립 체인(속도·캔버스·텍스트·음성 길이 고정), concat/xfade/acrossfade 오프셋, 음악 amix·워터마크 overlay, 손떨림 보정 패스, 출력 인자 |
+| `tests/unit/playerTools.test.ts`       | 11/11 | 구간 반복 정리·되돌림 시점, 재생 속도 단계, 확대·이동 범위 제한과 커서 고정, 실행 취소 스택(묶기, 분리, 다시 실행 목록 초기화, 100단계 상한)                                                                                                        |
 
 ## 4. 통합 테스트 (실제 FFmpeg)
 
@@ -68,6 +69,7 @@
 | `tests/e2e/library.spec.ts`     | 4/4  | 폴더 등록 → 인덱싱 → 썸네일이 전용 프로토콜로 실제 로드(naturalWidth>0), 폴더 트리; 상세에서 `<video>` 가 길이를 읽음(Range 동작), 평점; HEVC 프레임 보기, 대기열 추가; 비교 탭 설정 미리보기 인코딩 후 양쪽 프레임·와이프                    |
 | `tests/e2e/imageEditor.spec.ts` | 2/2  | 이미지 열기(대화상자 스텁) → 미리보기 로드(naturalWidth 800) → 숫자 자르기·90° 회전 후 미리보기 300×400 → 선명하게 → 저장 → 결과 파일 ffprobe 300×400 → 실행 취소 2회; 화면 캡처 대화상자에서 화면 선택 → PNG 생성(1 KB 초과) → 편집기에 열림 |
 | `tests/e2e/videoEditor.spec.ts` | 1/1  | 새 프로젝트 → 클립 추가(대화상자 스텁) → 재생 헤드 프레임 로드 → 1.5초 분할(클립 2개) → 페이드 0.4초·텍스트 추가 → 내보내기 → 결과 파일 ffprobe 길이 약 2.6초                                                                                 |
+| (영상 편집기 실행 취소)         | 1/1  | 분할 후 실행 취소로 클립 1개, 다시 실행으로 2개                                                                                                                                                                                               |
 | `tests/e2e/packaged.spec.ts`    | 1/1  | `pack:linux-dir` 결과물의 asar 앱이 렌더러를 로드하고 FFmpeg 상태를 표시                                                                                                                                                                      |
 
 E2E 는 파일 선택 대화상자만 메인 프로세스에서 스텁으로 바꾼다. 나머지는 실제 UI 조작이다.
@@ -123,4 +125,5 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
 - 1만 개 이상 폴더의 인덱싱 시간·메모리, HEVC 직접 재생이 되는 Windows GPU 환경에서의 플레이어 동작
 - 외부 자막 E2E (화면 조작 자동 테스트 없음, 통합 테스트로만 확인), ASS 스타일이 있는 실제 자막 파일
 - 이미지 편집기의 마우스 드래그 자르기(E2E 는 숫자 입력만), Windows 실기기의 화면 캡처(다중 모니터·배율), 실제 카메라 사진의 보정 품질
+- 1.5.0 보기 도구: 구간 반복·재생 속도·회전·반전·이미지 확대의 화면 동작은 자동 E2E 없음, 킹플레이어·킹컷·킹뷰 공식 기능 대조 불가 (kingtools.kr 접근 차단)
 - 영상 편집기: 라이브러리 미리보기 크기 스위치(자동 테스트 없음), 긴 프로젝트(수십 클립·수십 분)의 렌더 시간, Windows 의 맑은 고딕 drawtext 렌더링, 전환 종류별 화질, 손떨림 보정의 실제 효과(합성 영상으로는 판단 불가)

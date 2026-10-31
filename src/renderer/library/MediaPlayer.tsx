@@ -3,6 +3,7 @@ import type { MediaRef, MediaSource, PreviewAsset } from '../../shared/types/dom
 import { useAppStore } from '../hooks/useAppStore';
 import { formatBytes, formatDuration } from '../format';
 import { Button, ProgressBar } from '../components/ui';
+import { VideoWithTools, ZoomableImage } from './PlayerTools';
 import { libraryApi } from './libraryActions';
 
 /**
@@ -69,33 +70,17 @@ function MediaPlayerInner({
   return (
     <div className="space-y-2">
       {source.mediaKind === 'image' ? (
-        <img
-          src={source.url}
-          alt={source.fileName}
-          className="max-h-[60vh] w-full bg-black object-contain"
-        />
+        <ZoomableImage src={source.url} alt={source.fileName} />
       ) : useDirect ? (
-        <video
-          key={source.url}
+        <VideoWithTools
           src={source.url}
-          controls
-          preload="metadata"
-          className="max-h-[60vh] w-full bg-black"
+          srcWidth={source.width}
+          srcHeight={source.height}
           onError={() => setPlaybackFailed(true)}
-        >
-          <track kind="captions" />
-        </video>
+        />
       ) : proxy ? (
         <div className="space-y-1">
-          <video
-            key={proxy.url}
-            src={proxy.url}
-            controls
-            preload="metadata"
-            className="max-h-[60vh] w-full bg-black"
-          >
-            <track kind="captions" />
-          </video>
+          <VideoWithTools src={proxy.url} srcWidth={source.width} srcHeight={source.height} />
           <p className="rounded bg-[var(--c-surface-2)] px-2 py-1 text-xs text-[var(--c-warn)]">
             미리보기용 변환본을 재생 중입니다 ({formatBytes(proxy.sizeBytes)}). 압축 결과가
             아닙니다.
