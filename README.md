@@ -66,6 +66,7 @@ npm run fetch:ffmpeg    # FFmpeg 6.0 Windows 바이너리를 SHA-256 검증 후 
 npm run pack:win         # Windows NSIS 설치 파일과 포터블 실행 파일 (Windows, 또는 wine64·wine32 + xvfb 가 있는 Linux)
 npm run verify:win       # 생성된 설치 파일·포터블을 7z 로 해부해 페이로드·FFmpeg 해시·라이선스·버전 정보 확인
 node scripts/gen-licenses.mjs   # 제3자 라이선스 고지 재생성
+python3 scripts/gen-icon.py     # 앱 아이콘 재생성 (build/icon.png, build/icon.ico; PIL 필요)
 ```
 
 `release/` 에 `VideoSlim Desktop-Setup-<버전>-x64.exe` 와 `VideoSlim Desktop-Portable-<버전>-x64.exe` 가 생성됩니다. 배포 전 체크리스트는 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) 를 따르세요.

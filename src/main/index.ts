@@ -275,6 +275,8 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 640,
     title: 'VideoSlim Desktop',
+    // Windows 패키지는 실행 파일 리소스의 아이콘을 쓴다. 개발 실행과 Linux 에서는 이 파일을 창 아이콘으로 쓴다.
+    icon: windowIconPath(),
     backgroundColor: '#f8fafc',
     show: false,
     webPreferences: {
@@ -308,6 +310,15 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+}
+
+/** 창 아이콘 경로. 없으면 undefined (Electron 기본 아이콘) */
+function windowIconPath(): string | undefined {
+  const candidates = [
+    path.join(app.getAppPath(), 'build', 'icon.png'),
+    path.join(process.resourcesPath, 'icon.png'),
+  ];
+  return candidates.find((p) => fs.existsSync(p));
 }
 
 /** 앱 자신의 렌더러 주소만 허용한다 (번들된 index.html 또는 개발 서버). 임의의 file:// 탐색은 막는다. */

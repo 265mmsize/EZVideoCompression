@@ -80,6 +80,10 @@
       {
         "from": "resources/licenses",
         "to": "licenses"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
       }
     ],
     "win": {
@@ -98,7 +102,7 @@
         }
       ],
       "signExecutable": false,
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
