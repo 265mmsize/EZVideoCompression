@@ -9,6 +9,8 @@ import type {
   AddResult,
   AppSettings,
   CacheStats,
+  CutMode,
+  LibraryCutResult,
   CaptureResult,
   CaptureSource,
   EditProject,
@@ -161,6 +163,11 @@ export interface InvokeContract {
   };
   'library:cache.stats': { request: void; response: CacheStats };
   'library:cache.clear': { request: void; response: CacheStats };
+  /** 라이브러리 영상의 구간을 새 파일로 자른다 (fast: 스트림 복사, exact: 재인코딩) */
+  'library:cut': {
+    request: { id: string; startSec: number; endSec: number; mode: CutMode };
+    response: LibraryCutResult;
+  };
 
   // ----- 이미지 편집 · 화면 캡처 (1.3.0) -----
   /** 이미지 열기 (경로 지정). 원본은 읽기만 한다 */
@@ -296,6 +303,7 @@ export const CHANNEL_NAMES = {
     'library:duplicates.verify',
     'library:cache.stats',
     'library:cache.clear',
+    'library:cut',
     'image:open',
     'image:pickOpen',
     'image:preview',

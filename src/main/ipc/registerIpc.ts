@@ -171,6 +171,7 @@ export function registerIpc(deps: IpcDeps): void {
     }),
     'library:cache.stats': () => s.library.cacheStats(),
     'library:cache.clear': () => s.library.clearCache(),
+    'library:cut': ({ id, startSec, endSec, mode }) => s.clipCut.cut(id, startSec, endSec, mode),
 
     'image:open': ({ path }) => s.imageEdit.open(path),
     'image:pickOpen': async () => {

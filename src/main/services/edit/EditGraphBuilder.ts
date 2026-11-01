@@ -404,18 +404,10 @@ export function outputArgs(mode: 'proxy' | 'export', output: EditProject['output
     return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '30', '-c:a', 'aac', '-b:a', '96k'];
   }
   const enc = output.codec === 'h264' ? 'libx264' : 'libx265';
-  const args = [
-    '-c:v',
-    enc,
-    '-preset',
-    output.preset,
-    '-crf',
-    String(output.crf),
-    '-c:a',
-    'aac',
-    '-b:a',
-    '192k',
-  ];
+  const args = ['-c:v', enc, '-preset', output.preset, '-crf', String(output.crf)];
+  // 음성 제외 옵션이면 음성 인코더를 아예 쓰지 않는다 (-an)
+  if (output.noAudio) args.push('-an');
+  else args.push('-c:a', 'aac', '-b:a', '192k');
   if (output.codec === 'hevc' && output.container === 'mp4') args.push('-tag:v', 'hvc1');
   if (output.container === 'mp4') args.push('-movflags', '+faststart');
   return args;

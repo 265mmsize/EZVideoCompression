@@ -305,8 +305,7 @@ export class VideoEditService {
           plan.filterComplex,
           '-map',
           `[${plan.videoLabel}]`,
-          '-map',
-          `[${plan.audioLabel}]`,
+          ...(mode === 'export' && project.output.noAudio ? [] : ['-map', `[${plan.audioLabel}]`]),
           ...outputArgs(mode, project.output),
           '-t',
           plan.durationSec.toFixed(3),
@@ -347,7 +346,9 @@ export class VideoEditService {
 
         // 3) 검증: 길이·해상도·트랙
         emit({ stage: '검증', ratio: 1 });
-        await this.validate(temp, plan, canvas);
+        await this.validate(temp, plan, canvas, {
+          noAudio: mode === 'export' && project.output.noAudio === true,
+        });
 
         // 4) 확정
         const finalPath = resolveFinalPath(outDir, baseName, ext, project.clips[0]?.path ?? '');
@@ -429,12 +430,13 @@ export class VideoEditService {
     file: string,
     plan: RenderPlan,
     canvas: { width: number; height: number },
+    opts: { noAudio: boolean },
   ): Promise<void> {
     const p = await this.deps.probe.probe(file);
     const v = p.streams.find((s) => s.kind === 'video');
     const a = p.streams.find((s) => s.kind === 'audio');
     if (!v) throw new AppError('VALIDATION_FAILED', '결과에 영상 트랙이 없습니다');
-    if (!a) throw new AppError('VALIDATION_FAILED', '결과에 음성 트랙이 없습니다');
+    if (!a && !opts.noAudio) throw new AppError('VALIDATION_FAILED', '결과에 음성 트랙이 없습니다');
     if (v.width !== canvas.width || v.height !== canvas.height) {
       throw new AppError(
         'VALIDATION_FAILED',

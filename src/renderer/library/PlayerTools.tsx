@@ -3,33 +3,40 @@ import { formatDuration } from '../format';
 import { Button } from '../components/ui';
 import {
   FIT_VIEW,
+  FRAME_STEP_SEC,
   PLAYBACK_RATES,
   loopBackTarget,
   normalizeLoop,
   panBy,
+  playerAction,
   stepRate,
   zoomAt,
   type LoopRange,
   type View,
 } from './playerMath';
+import type { CutMode } from '../../shared/types/domain';
 
 type Rotation = 0 | 90 | 180 | 270;
 
 /**
- * 영상 플레이어 + 보기 도구 (구간 반복, 재생 속도, 보기 회전·반전).
+ * 영상 플레이어 + 보기 도구 (구간 반복, 재생 속도, 보기 회전·반전, 구간 저장, 키보드 조작).
  * 회전과 반전은 화면 표시에만 적용하며 파일을 바꾸지 않는다.
  * 회전 중에는 재생 막대도 함께 돌아가 보인다 (네이티브 컨트롤의 한계).
+ * 키: Space/K 재생, ←/→ 3초(Shift 10초), , . 프레임, Z 배속 초기화, X/C 감속·가속, [ ] A/B, L 반복, R 회전, H/V 반전.
  */
 export function VideoWithTools({
   src,
   srcWidth,
   srcHeight,
   onError,
+  onCut,
 }: {
   src: string;
   srcWidth: number | null;
   srcHeight: number | null;
   onError?: () => void;
+  /** 구간 저장. 없으면 구간 저장 버튼을 숨긴다 (미리보기 변환본 등). */
+  onCut?: (range: LoopRange, mode: CutMode) => Promise<void>;
 }): ReactNode {
   const ref = useRef<HTMLVideoElement>(null);
   const [rate, setRate] = useState<number>(1);
@@ -41,8 +48,11 @@ export function VideoWithTools({
   const [flipV, setFlipV] = useState(false);
   const [now, setNow] = useState(0);
   const [duration, setDuration] = useState<number | null>(null);
+  const [cutMode, setCutMode] = useState<CutMode>('fast');
+  const [cutting, setCutting] = useState(false);
 
-  const range: LoopRange | null = loopOn ? normalizeLoop(a, b, duration) : null;
+  const span = normalizeLoop(a, b, duration);
+  const range: LoopRange | null = loopOn ? span : null;
 
   // 재생 속도는 요소에 직접 반영한다 (메타데이터가 바뀌어도 다시 적용)
   useEffect(() => {
@@ -56,6 +66,53 @@ export function VideoWithTools({
     setNow(el.currentTime);
     const target = loopBackTarget(el.currentTime, normalizeLoop(a, b, el.duration));
     if (loopOn && target !== null) el.currentTime = target;
+  };
+
+  const runAction = (action: NonNullable<ReturnType<typeof playerAction>>): void => {
+    const el = ref.current;
+    switch (action.type) {
+      case 'toggle':
+        if (!el) return;
+        if (el.paused) void el.play().catch(() => undefined);
+        else el.pause();
+        return;
+      case 'seek':
+        if (!el) return;
+        el.currentTime = Math.max(0, Math.min(el.duration || 0, el.currentTime + action.deltaSec));
+        return;
+      case 'frame':
+        if (!el) return;
+        el.pause();
+        el.currentTime = Math.max(
+          0,
+          Math.min(el.duration || 0, el.currentTime + action.dir * FRAME_STEP_SEC),
+        );
+        return;
+      case 'rate':
+        setRate((r) => stepRate(r, action.dir));
+        return;
+      case 'rateReset':
+        setRate(1);
+        return;
+      case 'markA':
+        if (el) setA(el.currentTime);
+        return;
+      case 'markB':
+        if (el) setB(el.currentTime);
+        return;
+      case 'loop':
+        if (span) setLoopOn((v) => !v);
+        return;
+      case 'rotate':
+        setRotation((r) => ((r + 90) % 360) as Rotation);
+        return;
+      case 'flipH':
+        setFlipH((v) => !v);
+        return;
+      case 'flipV':
+        setFlipV((v) => !v);
+        return;
+    }
   };
 
   const rotated = rotation === 90 || rotation === 270;
@@ -77,9 +134,30 @@ export function VideoWithTools({
     transform: `translate(-50%, -50%) rotate(${String(rotation)}deg) scale(${flipH ? -1 : 1}, ${flipV ? -1 : 1})`,
   };
 
+  const doCut = async (): Promise<void> => {
+    if (!onCut || !span) return;
+    setCutting(true);
+    try {
+      await onCut(span, cutMode);
+    } finally {
+      setCutting(false);
+    }
+  };
+
   return (
     <div className="space-y-1">
-      <div className="relative overflow-hidden bg-black" style={boxStyle}>
+      <div
+        className="relative overflow-hidden bg-black outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
+        style={boxStyle}
+        tabIndex={0}
+        aria-label="영상 보기 (키보드: Space 재생, 화살표 탐색, [ ] 구간, L 반복)"
+        onKeyDown={(e) => {
+          const action = playerAction(e.key, e.shiftKey, e.ctrlKey || e.metaKey || e.altKey);
+          if (!action) return;
+          e.preventDefault();
+          runAction(action);
+        }}
+      >
         <video
           ref={ref}
           key={src}
@@ -113,7 +191,7 @@ export function VideoWithTools({
             type="checkbox"
             aria-label="구간 반복"
             checked={loopOn}
-            disabled={normalizeLoop(a, b, duration) === null}
+            disabled={span === null}
             onChange={(e) => setLoopOn(e.target.checked)}
           />
           구간 반복
@@ -159,9 +237,36 @@ export function VideoWithTools({
           상하 반전
         </Button>
       </div>
+
+      {onCut && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-[var(--c-border)] p-2 text-xs">
+          <span className="font-medium">구간 저장</span>
+          <select
+            aria-label="구간 저장 방식"
+            className="rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-0.5"
+            value={cutMode}
+            onChange={(e) => setCutMode(e.target.value as CutMode)}
+            disabled={cutting}
+          >
+            <option value="fast">빠름: 화질 그대로, 키프레임 단위</option>
+            <option value="exact">정확: 재인코딩, 요청 시점 그대로</option>
+          </select>
+          <Button variant="primary" disabled={!span || cutting} onClick={() => void doCut()}>
+            {cutting
+              ? '저장 중…'
+              : span
+                ? `구간 잘라서 저장 (${formatDuration(span.endSec - span.startSec)})`
+                : 'A 와 B 를 먼저 찍으세요'}
+          </Button>
+          <span className="text-[var(--c-muted)]">
+            원본은 바뀌지 않고 같은 폴더에 "-cut" 파일로 저장됩니다.
+          </span>
+        </div>
+      )}
       <p className="text-xs text-[var(--c-muted)]">
         구간 반복: A와 B를 찍고 반복을 켭니다. 회전과 반전은 보기에만 적용되며 파일은 바뀌지
-        않습니다.
+        않습니다. 영상을 클릭한 뒤 키보드를 쓰면 됩니다 (Space 재생, 화살표 탐색, [ ] 구간, L 반복,
+        R 회전).
       </p>
       {range && (
         <p className="text-xs text-[var(--c-muted)]">

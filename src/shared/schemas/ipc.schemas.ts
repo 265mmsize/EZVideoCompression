@@ -177,6 +177,7 @@ export const editProjectSchema = z.object({
     codec: z.enum(VIDEO_CODECS),
     crf: z.number().int().min(10).max(40),
     preset: z.enum(EDIT_PRESETS),
+    noAudio: z.boolean().optional(),
   }),
   createdAt: z.string().max(40),
   updatedAt: z.string().max(40),
@@ -278,6 +279,12 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'library:duplicates.verify': z.object({ ids: z.array(idSchema).min(2).max(200) }),
   'library:cache.stats': voidSchema,
   'library:cache.clear': voidSchema,
+  'library:cut': z.object({
+    id: idSchema,
+    startSec: z.number().min(0).max(1_000_000),
+    endSec: z.number().min(0).max(1_000_000),
+    mode: z.enum(['fast', 'exact']),
+  }),
   'image:open': z.object({ path: absolutePath }),
   'image:pickOpen': voidSchema,
   'image:preview': z.object({

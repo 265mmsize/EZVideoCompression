@@ -5,6 +5,7 @@ import { formatBytes, formatDuration } from '../format';
 import { Button, ProgressBar } from '../components/ui';
 import { VideoWithTools, ZoomableImage } from './PlayerTools';
 import { libraryApi } from './libraryActions';
+import { notify } from '../stores/appStore';
 
 /**
  * 미디어 플레이어.
@@ -77,6 +78,18 @@ function MediaPlayerInner({
           srcWidth={source.width}
           srcHeight={source.height}
           onError={() => setPlaybackFailed(true)}
+          onCut={
+            itemId
+              ? async (range, mode) => {
+                  const r = await libraryApi.cut(itemId, range.startSec, range.endSec, mode);
+                  if (r)
+                    notify(
+                      'info',
+                      `구간 저장됨: ${r.outputPath} (${formatDuration(r.durationSec)}). ${r.notes.join(' ')}`,
+                    );
+                }
+              : undefined
+          }
         />
       ) : proxy ? (
         <div className="space-y-1">

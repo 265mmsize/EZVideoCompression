@@ -22,6 +22,7 @@ import { JobQueueService } from './services/JobQueueService';
 import { LibraryRepository } from './repositories/LibraryRepository';
 import { LibraryIndexer } from './services/library/LibraryIndexer';
 import { LibraryService } from './services/library/LibraryService';
+import { ClipCutService } from './services/library/ClipCutService';
 import { MediaTokenRegistry } from './services/library/MediaTokenRegistry';
 import { PreviewService } from './services/library/PreviewService';
 import { ThumbnailService } from './services/library/ThumbnailService';
@@ -54,6 +55,7 @@ export interface AppServices {
   runner: JobRunner;
   queue: JobQueueService;
   library: LibraryService;
+  clipCut: ClipCutService;
   indexer: LibraryIndexer;
   previews: PreviewService;
   imageEdit: ImageEditService;
@@ -187,6 +189,15 @@ export function createServices(opts: ContainerOptions): AppServices {
     indexFile: (p) => library.indexFile(p),
     fontFile: () => findDefaultFont(),
   });
+  const clipCut = new ClipCutService({
+    get: (id) => library.get(id),
+    proc,
+    probe,
+    tools: requireTools,
+    tempRoot,
+    logger,
+    indexFile: (p) => library.indexFile(p),
+  });
   const imageEdit = new ImageEditService({
     proc,
     probe,
@@ -213,6 +224,7 @@ export function createServices(opts: ContainerOptions): AppServices {
     previews,
     imageEdit,
     videoEdit,
+    clipCut,
     tokens,
     toolStatus: () => status,
     refreshTools: () => {

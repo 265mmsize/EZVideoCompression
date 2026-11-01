@@ -23,6 +23,7 @@ import {
 } from '../../shared/types/domain';
 import { subscribe } from '../api';
 import { emptyHistory, recordChange, redo, undo, type History } from './historyStack';
+import { chapterLines, clipDur, layout, splitEqually, transitionSec } from './editOps';
 import { Button } from '../components/ui';
 import { formatDuration } from '../format';
 import { libraryApi } from '../library/libraryActions';
@@ -47,27 +48,6 @@ const WM_LABELS: Record<(typeof WATERMARK_POSITIONS)[number], string> = {
   center: '가운데',
 };
 
-// ----- 길이 계산 (메인의 EditGraphBuilder 와 같은 규칙) -----
-function clipDur(c: EditClip): number {
-  return Math.max(0, c.outSec - c.inSec) / c.speed;
-}
-function transitionSec(prev: EditClip, next: EditClip | undefined): number {
-  if (!next || prev.transition.type === 'none') return 0;
-  return Math.max(
-    0,
-    Math.min(prev.transition.durationSec, Math.min(clipDur(prev), clipDur(next)) * 0.5),
-  );
-}
-/** 각 클립의 타임라인 시작 시각과 전체 길이 */
-function layout(clips: EditClip[]): { starts: number[]; total: number } {
-  const starts: number[] = [];
-  let t = 0;
-  clips.forEach((c, i) => {
-    starts.push(t);
-    t += clipDur(c) - transitionSec(c, clips[i + 1]);
-  });
-  return { starts, total: Math.max(0, t) };
-}
 function locate(clips: EditClip[], time: number): { index: number; sourceSec: number } | null {
   const { starts } = layout(clips);
   for (let i = clips.length - 1; i >= 0; i--) {
@@ -322,6 +302,17 @@ export function VideoEditorPage(): ReactNode {
   const removeClip = (id: string): void => {
     update((p) => ({ ...p, clips: p.clips.filter((c) => c.id !== id) }));
     if (selectedClip === id) setSelectedClip(null);
+  };
+  const splitEqual = (id: string, n: number): void => {
+    const target = projRef.current?.clips.find((c) => c.id === id);
+    if (!target) return;
+    const parts = splitEqually(target, n, () => crypto.randomUUID());
+    if (parts.length < 2) {
+      notify('error', '클립이 너무 짧거나 조각 수(2~10)가 맞지 않아 나눌 수 없습니다');
+      return;
+    }
+    update((p) => ({ ...p, clips: p.clips.flatMap((c) => (c.id === id ? parts : [c])) }));
+    setSelectedClip(parts[0]?.id ?? null);
   };
   const duplicateClip = (id: string): void => {
     update((p) => {
@@ -627,6 +618,7 @@ export function VideoEditorPage(): ReactNode {
                 onMove={(d) => moveClip(current.id, d)}
                 onRemove={() => removeClip(current.id)}
                 onDuplicate={() => duplicateClip(current.id)}
+                onSplitEqual={(n) => splitEqual(current.id, n)}
               />
             ) : (
               <p className="text-xs text-[var(--c-muted)]">타임라인에서 클립을 선택하세요.</p>
@@ -717,6 +709,7 @@ function ClipPanel({
   onMove,
   onRemove,
   onDuplicate,
+  onSplitEqual,
 }: {
   clip: EditClip;
   index: number;
@@ -726,7 +719,9 @@ function ClipPanel({
   onMove: (d: -1 | 1) => void;
   onRemove: () => void;
   onDuplicate: () => void;
+  onSplitEqual: (n: number) => void;
 }): ReactNode {
+  const [parts, setParts] = useState(2);
   const setIn = (v: number): void =>
     onChange({ inSec: Math.max(0, Math.min(v, clip.outSec - 0.1)) });
   const setOut = (v: number): void =>
@@ -748,6 +743,18 @@ function ClipPanel({
           뒤로 →
         </Button>
         <Button onClick={onDuplicate}>복제</Button>
+        <span className="flex items-center gap-1 text-xs">
+          <input
+            type="number"
+            aria-label="나눌 조각 수"
+            min={2}
+            max={10}
+            value={parts}
+            onChange={(e) => setParts(Math.round(Number(e.target.value)))}
+            className="w-14 rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-1"
+          />
+          <Button onClick={() => onSplitEqual(parts)}>같은 길이로 나누기</Button>
+        </span>
         <Button variant="danger" onClick={onRemove}>
           제거
         </Button>
@@ -1289,9 +1296,21 @@ function ExportPanel({
   onCancel: () => void;
 }): ReactNode {
   const o = project.output;
+  const chapters = chapterLines(project.clips).join('\n');
   return (
     <div>
       <h4 className="text-xs font-semibold text-[var(--c-muted)]">출력 설정</h4>
+      <label className="mt-1 flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          aria-label="오디오 제외"
+          checked={o.noAudio === true}
+          onChange={(e) =>
+            onChange((p) => ({ ...p, output: { ...p.output, noAudio: e.target.checked } }))
+          }
+        />
+        오디오 제외 (영상만 내보내기)
+      </label>
       <div className="grid grid-cols-2 gap-1">
         <Field label="컨테이너">
           <select
@@ -1362,6 +1381,38 @@ function ExportPanel({
         내보내기는 항상 재인코딩입니다. 결과는 첫 클립 폴더에 "프로젝트 이름-edit"로 저장되며 기존
         파일은 덮어쓰지 않습니다. 등록된 라이브러리 폴더면 바로 목록에 나타납니다.
       </p>
+
+      <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">유튜브 챕터</h4>
+      {project.clips.length === 0 ? (
+        <p className="text-xs text-[var(--c-muted)]">클립을 추가하면 챕터 목록이 만들어집니다.</p>
+      ) : (
+        <div className="space-y-1">
+          <textarea
+            aria-label="챕터 텍스트"
+            readOnly
+            rows={Math.min(8, project.clips.length + 1)}
+            className="w-full rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-1 font-mono text-xs"
+            value={chapters}
+          />
+          <Button
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(chapters)
+                .then(() =>
+                  notify('info', '챕터 텍스트를 복사했습니다. 유튜브 설명란에 붙여 넣으세요.'),
+                )
+                .catch(() =>
+                  notify('error', '복사하지 못했습니다. 텍스트를 직접 선택해 복사하세요.'),
+                );
+            }}
+          >
+            챕터 텍스트 복사
+          </Button>
+          <p className="text-xs text-[var(--c-muted)]">
+            시작 시간은 전환이 겹친 뒤의 타임라인 기준입니다. 유튜브는 첫 챕터가 0:00 이어야 합니다.
+          </p>
+        </div>
+      )}
 
       <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">진행</h4>
       {render ? (

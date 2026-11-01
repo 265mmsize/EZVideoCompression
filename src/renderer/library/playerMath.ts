@@ -100,3 +100,63 @@ export function zoomAt(
 export function panBy(view: View, dx: number, dy: number, width: number, height: number): View {
   return clampView({ ...view, tx: view.tx + dx, ty: view.ty + dy }, width, height);
 }
+
+// ----- 키보드 동작 (킹플레이어 단축키 중 공통 기능) -----
+
+export const FRAME_STEP_SEC = 1 / 30;
+
+export type PlayerAction =
+  | { type: 'toggle' }
+  | { type: 'seek'; deltaSec: number }
+  | { type: 'frame'; dir: 1 | -1 }
+  | { type: 'rate'; dir: 1 | -1 }
+  | { type: 'rateReset' }
+  | { type: 'markA' }
+  | { type: 'markB' }
+  | { type: 'loop' }
+  | { type: 'rotate' }
+  | { type: 'flipH' }
+  | { type: 'flipV' };
+
+/**
+ * 키 입력을 플레이어 동작으로 바꾼다. 해당 없는 키는 null (브라우저 기본 동작을 막지 않는다).
+ * Space/K 재생·정지, ←/→ 3초(Shift 10초), , . 프레임 이동, Z 배속 초기화, X/C 감속·가속,
+ * [ ] A/B 지점, L 구간 반복, R 회전, H/V 반전.
+ */
+export function playerAction(key: string, shift: boolean, ctrl: boolean): PlayerAction | null {
+  if (ctrl) return null;
+  const k = key.length === 1 ? key.toLowerCase() : key;
+  switch (k) {
+    case ' ':
+    case 'k':
+      return { type: 'toggle' };
+    case 'ArrowLeft':
+      return { type: 'seek', deltaSec: shift ? -10 : -3 };
+    case 'ArrowRight':
+      return { type: 'seek', deltaSec: shift ? 10 : 3 };
+    case ',':
+      return { type: 'frame', dir: -1 };
+    case '.':
+      return { type: 'frame', dir: 1 };
+    case 'z':
+      return { type: 'rateReset' };
+    case 'x':
+      return { type: 'rate', dir: -1 };
+    case 'c':
+      return { type: 'rate', dir: 1 };
+    case '[':
+      return { type: 'markA' };
+    case ']':
+      return { type: 'markB' };
+    case 'l':
+      return { type: 'loop' };
+    case 'r':
+      return { type: 'rotate' };
+    case 'h':
+      return { type: 'flipH' };
+    case 'v':
+      return { type: 'flipV' };
+    default:
+      return null;
+  }
+}

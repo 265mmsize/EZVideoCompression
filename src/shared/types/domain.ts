@@ -682,6 +682,22 @@ export interface CaptureResult {
 }
 
 // ---------------------------------------------------------------------------
+// 라이브러리 구간 자르기 (1.6.0)
+// ---------------------------------------------------------------------------
+
+export const CUT_MODES = ['fast', 'exact'] as const;
+export type CutMode = (typeof CUT_MODES)[number];
+
+export interface LibraryCutResult {
+  outputPath: string;
+  durationSec: number;
+  sizeBytes: number;
+  libraryItemId: string | null;
+  mode: CutMode;
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
 // 영상 편집기 (1.4.0)
 // ---------------------------------------------------------------------------
 
@@ -811,6 +827,8 @@ export interface EditOutput {
   codec: VideoCodec;
   crf: number;
   preset: (typeof EDIT_PRESETS)[number];
+  /** 내보내기에서 음성 제외 (영상만). 이전에 저장된 프로젝트에는 없을 수 있다. */
+  noAudio?: boolean;
 }
 
 export interface EditProject {
