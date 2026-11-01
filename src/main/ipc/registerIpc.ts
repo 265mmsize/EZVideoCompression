@@ -16,6 +16,7 @@ import { invokeSchemas } from '../../shared/schemas/ipc.schemas';
 import type { AppServices } from '../container';
 import { AppError } from '../services/AppError';
 import { toView } from '../repositories/JobRepository';
+import { loadSubtitlesFor } from '../services/library/LibrarySubtitles';
 
 /** 파일/폴더 대화상자와 저장 대화상자는 창 의존이므로 주입받는다 */
 export interface DialogPort {
@@ -173,6 +174,13 @@ export function registerIpc(deps: IpcDeps): void {
     'library:cache.clear': () => s.library.clearCache(),
     'library:cut': ({ id, startSec, endSec, mode }) => s.clipCut.cut(id, startSec, endSec, mode),
     'library:extractAudio': ({ id }) => s.clipCut.extractAudio(id),
+    'library:cutRanges': ({ id, ranges, mode }) => s.clipCut.cutRanges(id, ranges, mode),
+    'library:saveFrame': ({ id, timeSec }) => s.clipCut.saveFrame(id, timeSec),
+    'library:subtitles': ({ id }) => {
+      const item = s.library.get(id);
+      return loadSubtitlesFor(item.path);
+    },
+    'library:pixel': ({ id, x, y }) => s.imageEdit.pixel(s.library.get(id).path, x, y),
 
     'image:open': ({ path }) => s.imageEdit.open(path),
     'image:pickOpen': async () => {

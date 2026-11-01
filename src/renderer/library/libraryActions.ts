@@ -4,6 +4,7 @@
 import { call } from '../api';
 import { errorText, notify, refreshJobs } from '../stores/appStore';
 import type {
+  CutMode,
   EditProject,
   EditRenderMode,
   ImageEditOps,
@@ -93,8 +94,27 @@ export const libraryApi = {
 
   // ----- 이미지 편집 · 화면 캡처 -----
   extractAudio: (id: string) => run('음성 추출', () => call('library:extractAudio', { id })),
-  cut: (id: string, startSec: number, endSec: number, mode: 'fast' | 'exact') =>
+  cut: (id: string, startSec: number, endSec: number, mode: CutMode) =>
     run('구간 저장', () => call('library:cut', { id, startSec, endSec, mode })),
+  cutRanges: (id: string, ranges: { startSec: number; endSec: number }[], mode: CutMode) =>
+    run('구간 저장', () => call('library:cutRanges', { id, ranges, mode })),
+  saveFrame: (id: string, timeSec: number) =>
+    run('스크린샷 저장', () => call('library:saveFrame', { id, timeSec })),
+  subtitles: async (id: string) => {
+    try {
+      return await call('library:subtitles', { id });
+    } catch {
+      return [];
+    }
+  },
+  pixel: async (id: string, x: number, y: number) => {
+    try {
+      return await call('library:pixel', { id, x, y });
+    } catch (err) {
+      notify('error', `색 읽기 실패: ${errorText(err)}`);
+      return null;
+    }
+  },
   imageOpen: (path: string) => run('이미지 열기', () => call('image:open', { path })),
   imagePickOpen: () => run('이미지 열기', () => call('image:pickOpen')),
   /** 미리보기는 새 요청으로 취소될 수 있으므로 알림 없이 undefined 를 돌려준다 */

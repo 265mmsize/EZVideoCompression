@@ -157,6 +157,32 @@ export function LibraryPage({
   const patchItem = (it: LibraryItem): void =>
     setItems((prev) => prev.map((p) => (p.id === it.id ? it : p)));
 
+  /** 목록에서 이전·다음 항목 선택 (킹뷰 ← → 넘김, 킹플레이어 PgUp/PgDn) */
+  const stepSelection = (dir: 1 | -1): void => {
+    if (!selectedItem) return;
+    const idx = items.findIndex((i) => i.id === selectedItem.id);
+    const next = idx < 0 ? undefined : items[idx + dir];
+    if (next) setSelected(new Set([next.id]));
+  };
+  // Alt+1~5: 선택한 항목에 별점을 매기고 다음 항목으로 넘어간다 (킹뷰 별점 선별)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (!e.altKey || !/^[1-5]$/.test(e.key) || !selectedItem) return;
+      e.preventDefault();
+      const rating = Number(e.key);
+      void libraryApi.setMeta(selectedItem.id, { rating }).then((updated) => {
+        if (updated) patchItem(updated);
+        stepSelection(1);
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // patchItem/stepSelection 은 매 렌더 새로 만들어지지만 상태만 읽으므로 선택·목록이 바뀔 때만 다시 등록한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedItem, items]);
+
   const addRoot = async (): Promise<void> => {
     const r = await libraryApi.addRoot(includeSub);
     if (r) await loadRoots();
@@ -315,6 +341,7 @@ export function LibraryPage({
             onClose={() => setSelected(new Set())}
             onCompare={onCompare}
             onEdit={onEdit}
+            onStep={stepSelection}
             width={detailWidth}
             onWidth={setDetail}
           />

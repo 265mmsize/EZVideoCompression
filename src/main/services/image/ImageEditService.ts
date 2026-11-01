@@ -233,6 +233,57 @@ export class ImageEditService {
     fs.mkdirSync(deps.previewDir, { recursive: true });
   }
 
+  /** 원본의 한 픽셀 RGB. 미리보기 캔버스는 교차 출처라 읽을 수 없으므로 FFmpeg 로 한 픽셀만 꺼낸다. */
+  async pixel(
+    filePath: string,
+    x: number,
+    y: number,
+  ): Promise<{ r: number; g: number; b: number }> {
+    // FFmpeg 의 crop 은 범위를 넘으면 가장자리로 옮겨 버리므로, 크기를 먼저 확인한다
+    const info = await this.deps.probe.probe(filePath);
+    const v = info.streams.find((st) => st.kind === 'video' && !st.isAttachedPic);
+    if (!v || v.width === null || v.height === null)
+      throw new AppError('IMAGE_EDIT_FAILED', '이미지 크기를 알 수 없습니다');
+    if (x < 0 || y < 0 || x >= v.width || y >= v.height) {
+      throw new AppError('INVALID_REQUEST', '좌표가 이미지 밖입니다');
+    }
+    const out = path.join(this.deps.previewDir, `pixel-${randomUUID()}.raw`);
+    const tools = this.deps.tools();
+    try {
+      const res = await this.deps.proc.run(
+        tools.ffmpeg,
+        [
+          ...COMMON_IN,
+          '-i',
+          filePath,
+          '-map',
+          '0:v:0',
+          '-vf',
+          `crop=1:1:${String(x)}:${String(y)}`,
+          '-frames:v',
+          '1',
+          '-pix_fmt',
+          'rgb24',
+          '-f',
+          'rawvideo',
+          out,
+        ],
+        { timeoutMs: CALL_TIMEOUT_MS },
+      );
+      if (res.exitCode !== 0 || !fs.existsSync(out)) {
+        throw new AppError(
+          'IMAGE_EDIT_FAILED',
+          '픽셀을 읽지 못했습니다 (좌표가 이미지 밖일 수 있습니다)',
+        );
+      }
+      const buf = fs.readFileSync(out);
+      if (buf.length < 3) throw new AppError('IMAGE_EDIT_FAILED', '픽셀 데이터가 없습니다');
+      return { r: buf[0] ?? 0, g: buf[1] ?? 0, b: buf[2] ?? 0 };
+    } finally {
+      fs.rmSync(out, { force: true });
+    }
+  }
+
   async open(filePath: string): Promise<ImageInfo> {
     const probe = await this.deps.probe.probe(filePath);
     const v = probe.streams.find((s) => s.kind === 'video');

@@ -21,11 +21,11 @@
 | `npm run lint`                                     | 통과 (strict type-checked ESLint)                                                                                                               |
 | `npm run format:check`                             | 통과 (Prettier)                                                                                                                                 |
 | `npm run build`                                    | 통과 (main 120 kB, preload 2 kB, renderer 약 636 kB)                                                                                            |
-| `npm test` (단위 + 통합)                           | **190/190 통과** (23개 파일)                                                                                                                    |
+| `npm test` (단위 + 통합)                           | **209/209 통과** (25개 파일)                                                                                                                    |
 | `npm run test:e2e`                                 | **13/13 통과** (앱 4개 + 라이브러리 4개 + 이미지 편집기 2개 + 영상 편집기 2개 + 패키지 앱 1개)                                                  |
 | `npm run pack:linux-dir`                           | 통과 (asar 에 런타임 의존성 포함, 패키지 앱 기동 확인)                                                                                          |
 | `npm run pack:win` (Linux + wine64/wine32 + xvfb)  | **통과**: 1.7.0 NSIS 설치 파일과 포터블 생성                                                                                                    |
-| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.8.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
+| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.9.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
 | wine 무인 설치 (`Setup.exe /S`)                    | **실패**: 코드 2 로 즉시 종료, 파일 미배치 (1.0.0 에서 확인한 wine 호환성 문제, 그 뒤 재시도하지 않음). 설치 동작 검증은 Windows 에서 해야 한다 |
 | `npm audit --omit=dev`                             | 취약점 0건 (운영 의존성 기준)                                                                                                                   |
 | `npm audit` (개발 도구 포함)                       | 중간 등급 8건. 개발 도구(electron-builder 등)의 전이 의존성이며 배포 파일에는 포함되지 않는다. 업그레이드 검토 필요                             |
@@ -132,3 +132,9 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
 - 1.6.0: 구간 저장의 실제 화면 조작, 키보드 조작 E2E, 챕터 복사(클립보드)는 자동 테스트 없음. 스마트 컷과 자막 표시는 미구현.
 - 1.5.0 보기 도구: 구간 반복·재생 속도·회전·반전·이미지 확대의 화면 동작은 자동 E2E 없음, 킹플레이어·킹컷·킹뷰 공식 기능 대조 불가 (kingtools.kr 접근 차단)
 - 영상 편집기: 라이브러리 미리보기 크기 스위치(자동 테스트 없음), 긴 프로젝트(수십 클립·수십 분)의 렌더 시간, Windows 의 맑은 고딕 drawtext 렌더링, 전환 종류별 화질, 손떨림 보정의 실제 효과(합성 영상으로는 판단 불가)
+
+## 8. 1.9.0 추가 검증
+
+- 단위: 자막 파서(SRT, WebVTT, ASS), 책갈피, 색상 변환, 화면 좌표의 픽셀 변환, 키 매핑, 키프레임 파싱, 구간 검증 (`tests/unit/playerFeatures.test.ts`, `playerKeys.test.ts`).
+- 통합(실제 FFmpeg): 스마트 컷은 키프레임 0.5초 간격 영상에서 재인코딩 구간만 다르게 처리하고 길이를 지킨다. 구간 목록 합치기, 프레임 저장(320×240 PNG), 같은 이름 자막 읽기, 한 픽셀 RGB 읽기와 범위 밖 좌표 거부 (`tests/integration/playerFeatures.test.ts`).
+- 확인하지 않은 것: 자막 화면 표시와 싱크 키, 책갈피, 확대 끌어 이동, 컬러 피커 클릭, Alt 별점 넘김의 화면 동작은 자동 E2E가 없다. 실제 Windows에서의 확인도 남아 있다.

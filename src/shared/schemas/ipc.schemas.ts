@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import {
   CANVAS_PRESETS,
+  CUT_MODES,
   COMPRESSION_MODES,
   EDIT_PRESETS,
   IMAGE_EXPORT_FORMATS,
@@ -284,7 +285,30 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
     id: idSchema,
     startSec: z.number().min(0).max(1_000_000),
     endSec: z.number().min(0).max(1_000_000),
-    mode: z.enum(['fast', 'exact']),
+    mode: z.enum(CUT_MODES),
+  }),
+  'library:cutRanges': z.object({
+    id: idSchema,
+    ranges: z
+      .array(
+        z.object({
+          startSec: z.number().min(0).max(1_000_000),
+          endSec: z.number().min(0).max(1_000_000),
+        }),
+      )
+      .min(1)
+      .max(20),
+    mode: z.enum(CUT_MODES),
+  }),
+  'library:saveFrame': z.object({
+    id: idSchema,
+    timeSec: z.number().min(0).max(1_000_000),
+  }),
+  'library:subtitles': z.object({ id: idSchema }),
+  'library:pixel': z.object({
+    id: idSchema,
+    x: z.number().int().min(0).max(MAX_IMAGE_DIM),
+    y: z.number().int().min(0).max(MAX_IMAGE_DIM),
   }),
   'image:open': z.object({ path: absolutePath }),
   'image:pickOpen': voidSchema,

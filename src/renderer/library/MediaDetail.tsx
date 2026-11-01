@@ -15,6 +15,7 @@ export function MediaDetail({
   onClose,
   onCompare,
   onEdit,
+  onStep,
   width,
   onWidth,
 }: {
@@ -23,6 +24,8 @@ export function MediaDetail({
   onClose: () => void;
   onCompare: (jobId: string) => void;
   onEdit: (path: string) => void;
+  /** 목록에서 이전·다음 항목으로 이동 */
+  onStep?: (dir: 1 | -1) => void;
   /** 패널 너비 (px) 또는 '최대' */
   width: DetailWidth;
   onWidth: (w: DetailWidth) => void;
@@ -97,7 +100,7 @@ export function MediaDetail({
           분석 실패({item.errorCode}): 손상되었거나 지원하지 않는 파일입니다.
         </p>
       ) : (
-        <MediaPlayer media={{ kind: 'item', id: item.id }} itemId={item.id} />
+        <MediaPlayer media={{ kind: 'item', id: item.id }} itemId={item.id} onStep={onStep} />
       )}
 
       <section>

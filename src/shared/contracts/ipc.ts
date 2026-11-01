@@ -165,6 +165,21 @@ export interface InvokeContract {
   'library:cache.stats': { request: void; response: CacheStats };
   'library:cache.clear': { request: void; response: CacheStats };
   /** 라이브러리 영상의 구간을 새 파일로 자른다 (fast: 스트림 복사, exact: 재인코딩) */
+  /** 여러 구간을 잘라 순서대로 한 파일로 합친다 (킹컷 구간 목록) */
+  'library:cutRanges': {
+    request: { id: string; ranges: { startSec: number; endSec: number }[]; mode: CutMode };
+    response: LibraryCutResult;
+  };
+  /** 지정한 시점의 프레임을 PNG 로 저장한다 (킹플레이어 스크린샷) */
+  'library:saveFrame': {
+    request: { id: string; timeSec: number };
+    response: { outputPath: string; width: number; height: number; sizeBytes: number };
+  };
+  /** 같은 이름의 자막 파일을 화면 표시용으로 읽는다 */
+  'library:subtitles': {
+    request: { id: string };
+    response: { fileName: string; format: string; language: string | null; text: string }[];
+  };
   /** 영상의 음성만 MP3 로 추출한다 */
   'library:extractAudio': { request: { id: string }; response: LibraryAudioResult };
   'library:cut': {
@@ -175,6 +190,11 @@ export interface InvokeContract {
   // ----- 이미지 편집 · 화면 캡처 (1.3.0) -----
   /** 이미지 열기 (경로 지정). 원본은 읽기만 한다 */
   'image:open': { request: { path: string }; response: ImageInfo };
+  /** 라이브러리 이미지의 원본 해상도 기준 한 픽셀 RGB (컬러 피커) */
+  'library:pixel': {
+    request: { id: string; x: number; y: number };
+    response: { r: number; g: number; b: number };
+  };
   /** 파일 대화상자로 이미지 열기 */
   'image:pickOpen': { request: void; response: ImageInfo | null };
   /** 편집 연산을 적용한 미리보기 (축소본). 같은 경로의 이전 미리보기 생성은 취소된다 */
@@ -308,6 +328,10 @@ export const CHANNEL_NAMES = {
     'library:cache.clear',
     'library:cut',
     'library:extractAudio',
+    'library:cutRanges',
+    'library:saveFrame',
+    'library:subtitles',
+    'library:pixel',
     'image:open',
     'image:pickOpen',
     'image:preview',

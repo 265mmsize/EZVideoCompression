@@ -16,15 +16,19 @@ import { notify } from '../stores/appStore';
 export function MediaPlayer({
   media,
   itemId,
+  onStep,
 }: {
   media: MediaRef;
   itemId: string | null;
+  /** 목록에서 이전·다음 항목으로 이동 */
+  onStep?: (dir: 1 | -1) => void;
 }): ReactNode {
   return (
     <MediaPlayerInner
       key={`${JSON.stringify(media)}|${itemId ?? ''}`}
       media={media}
       itemId={itemId}
+      onStep={onStep}
     />
   );
 }
@@ -32,9 +36,11 @@ export function MediaPlayer({
 function MediaPlayerInner({
   media,
   itemId,
+  onStep,
 }: {
   media: MediaRef;
   itemId: string | null;
+  onStep?: (dir: 1 | -1) => void;
 }): ReactNode {
   const [source, setSource] = useState<MediaSource | null>(null);
   const [playbackFailed, setPlaybackFailed] = useState(false);
@@ -71,7 +77,14 @@ function MediaPlayerInner({
   return (
     <div className="space-y-2">
       {source.mediaKind === 'image' ? (
-        <ZoomableImage src={source.url} alt={source.fileName} />
+        <ZoomableImage
+          src={source.url}
+          alt={source.fileName}
+          itemId={itemId}
+          width={source.width}
+          height={source.height}
+          onStep={onStep}
+        />
       ) : useDirect ? (
         <VideoWithTools
           src={source.url}
@@ -79,10 +92,10 @@ function MediaPlayerInner({
           srcHeight={source.height}
           onError={() => setPlaybackFailed(true)}
           resumeKey={itemId}
-          onCut={
+          onCutRanges={
             itemId
-              ? async (range, mode) => {
-                  const r = await libraryApi.cut(itemId, range.startSec, range.endSec, mode);
+              ? async (ranges, mode) => {
+                  const r = await libraryApi.cutRanges(itemId, ranges, mode);
                   if (r)
                     notify(
                       'info',
@@ -91,6 +104,19 @@ function MediaPlayerInner({
                 }
               : undefined
           }
+          onSaveFrame={
+            itemId
+              ? async (timeSec) => {
+                  const r = await libraryApi.saveFrame(itemId, timeSec);
+                  if (r)
+                    notify(
+                      'info',
+                      `스크린샷 저장됨: ${r.outputPath} (${String(r.width)}×${String(r.height)})`,
+                    );
+                }
+              : undefined
+          }
+          onStep={onStep}
         />
       ) : proxy ? (
         <div className="space-y-1">

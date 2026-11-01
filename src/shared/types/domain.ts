@@ -685,7 +685,8 @@ export interface CaptureResult {
 // 라이브러리 구간 자르기 (1.6.0)
 // ---------------------------------------------------------------------------
 
-export const CUT_MODES = ['fast', 'exact'] as const;
+/** fast: 스트림 복사, exact: 재인코딩, smart: 시작 키프레임 전만 재인코딩 */
+export const CUT_MODES = ['fast', 'exact', 'smart'] as const;
 export type CutMode = (typeof CUT_MODES)[number];
 
 export interface LibraryAudioResult {
