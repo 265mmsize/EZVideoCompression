@@ -120,6 +120,8 @@ export interface AppSettings {
   /** 빠른 압축에서 사용 가능한 하드웨어 인코더를 먼저 쓸지 여부 (실패 시 CPU 로 대체) */
   fastUseHardware: boolean;
   includeSubfoldersDefault: boolean;
+  /** 유튜브 임베드 재생 허용 여부. 켜면 유튜브 서버에 접속한다 (기본 꺼짐) */
+  youtubeEmbedEnabled: boolean;
   /** 출력 위치: 원본과 같은 폴더 또는 지정 폴더 */
   outputFolderMode: 'same' | 'custom';
   customOutputDir: string | null;

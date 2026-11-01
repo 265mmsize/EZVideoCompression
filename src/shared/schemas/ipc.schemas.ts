@@ -53,6 +53,7 @@ export const appSettingsSchema = z.object({
   keepLargerResults: z.boolean(),
   fastUseHardware: z.boolean(),
   includeSubfoldersDefault: z.boolean(),
+  youtubeEmbedEnabled: z.boolean(),
   outputFolderMode: z.enum(['same', 'custom']),
   customOutputDir: absolutePath.nullable(),
   outputSuffix: z

@@ -14,7 +14,7 @@ Electron 에 의존하지 않으므로 단위·통합 테스트를 실제 FFmpeg
 
 보안 설정: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true`.
 창의 새 창 열기는 차단하고, 앱 파일 외의 탐색은 막는다. 권한 요청은 모두 거부한다.
-렌더러 HTML 에는 CSP(`default-src 'none'`, `connect-src 'none'`)를 두어 외부 리소스 로드를 막는다.
+렌더러 HTML 에는 CSP(`default-src 'none'`, `connect-src 'none'`)를 두어 외부 리소스 로드를 막는다. 예외는 유튜브 임베드 플레이어 화면(`frame-src https://www.youtube-nocookie.com`) 하나뿐이다. 메인 프로세스의 요청 정책도 설정의 "유튜브 임베드 재생 허용"을 켠 경우에만 유튜브 호스트 요청을 통과시킨다 (기본 꺼짐, `src/main/services/youtube/youtubePolicy.ts`).
 
 ## 2. 메인 프로세스 모듈
 

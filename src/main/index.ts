@@ -16,6 +16,7 @@ import {
 } from './services/library/MediaTokenRegistry';
 import { ScreenCaptureService } from './services/image/ScreenCaptureService';
 import { createServices, type AppServices } from './container';
+import { EMBED_REFERER, isYouTubeRequest } from './services/youtube/youtubePolicy';
 import { registerIpc, type DialogPort } from './ipc/registerIpc';
 import { CHANNEL_NAMES, type EventChannel } from '../shared/contracts/ipc';
 
@@ -409,13 +410,24 @@ function installSecurityPolicy(): void {
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler(() => false);
   ses.webRequest.onBeforeRequest((details, callback) => {
-    const ok =
+    const local =
       details.url.startsWith('file://') ||
       details.url.startsWith(`${MEDIA_SCHEME}://`) ||
       details.url.startsWith('devtools://') ||
       (process.env['ELECTRON_RENDERER_URL'] !== undefined &&
         details.url.startsWith(process.env['ELECTRON_RENDERER_URL']));
-    callback({ cancel: !ok });
+    // 유튜브 임베드는 설정에서 켠 경우에만 허용한다 (기본 꺼짐). 설정은 유튜브 요청일 때만 읽는다.
+    const youtube =
+      !local &&
+      isYouTubeRequest(details.url) &&
+      (services?.settings.get().youtubeEmbedEnabled ?? false);
+    callback({ cancel: !(local || youtube) });
+  });
+  // 유튜브 플레이어 요청에 Referer 를 붙인다 (file:// 앱에서 임베드가 거부되는 것을 막는다)
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    const headers = { ...details.requestHeaders };
+    if (isYouTubeRequest(details.url)) headers['Referer'] = EMBED_REFERER;
+    callback({ requestHeaders: headers });
   });
 }
 

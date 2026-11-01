@@ -184,6 +184,18 @@ export function SettingsPage(): ReactNode {
           />
           폴더 추가 시 하위 폴더를 기본으로 포함
         </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={settings.youtubeEmbedEnabled}
+            onChange={(e) => save({ youtubeEmbedEnabled: e.target.checked })}
+          />
+          <span>
+            유튜브 임베드 재생 허용 (기본: 꺼짐). 켜면 유튜브 서버에 접속합니다. 영상은 파일로 받지
+            않고 플레이어에서 스트리밍으로만 재생합니다.
+          </span>
+        </label>
         <PathField
           label="결과 접미사"
           value={settings.outputSuffix}

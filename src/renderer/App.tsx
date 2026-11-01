@@ -8,15 +8,26 @@ import { LibraryPage } from './library/LibraryPage';
 import { ImageEditorPage } from './pages/ImageEditorPage';
 import { VideoEditorPage } from './pages/VideoEditorPage';
 import { ViewerPage, type ViewSeed } from './viewer/ViewerPage';
+import { YouTubePage } from './youtube/YouTubePage';
 import { Button } from './components/ui';
 import { recheckTools } from './actions';
 import { errorText, notify, initStore } from './stores/appStore';
 
-type Tab = 'library' | 'viewer' | 'jobs' | 'compare' | 'editor' | 'video' | 'history' | 'settings';
+type Tab =
+  | 'library'
+  | 'viewer'
+  | 'youtube'
+  | 'jobs'
+  | 'compare'
+  | 'editor'
+  | 'video'
+  | 'history'
+  | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '라이브러리' },
   { id: 'viewer', label: '킹뷰' },
+  { id: 'youtube', label: '유튜브' },
   { id: 'jobs', label: '작업 목록' },
   { id: 'compare', label: '비교' },
   { id: 'editor', label: '이미지 편집' },
@@ -113,6 +124,11 @@ export function App(): ReactNode {
           <LibraryPage onCompare={openCompare} onEdit={openEditor} onViewer={openViewer} />
         ) : tab === 'viewer' ? (
           <ViewerPage key={viewerKey} seed={viewerSeed} />
+        ) : tab === 'youtube' ? (
+          <YouTubePage
+            embedEnabled={settings?.youtubeEmbedEnabled ?? false}
+            onOpenSettings={() => setTab('settings')}
+          />
         ) : tab === 'jobs' ? (
           <JobsPage />
         ) : tab === 'compare' ? (

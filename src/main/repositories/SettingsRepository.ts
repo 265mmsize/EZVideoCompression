@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keepLargerResults: false,
   fastUseHardware: true,
   includeSubfoldersDefault: false,
+  youtubeEmbedEnabled: false,
   outputFolderMode: 'same',
   customOutputDir: null,
   outputSuffix: '-slim',
