@@ -234,6 +234,7 @@ export function validateRanges(
 }
 
 export class ClipCutService {
+  private readonly keyframeCache = new Map<string, number[]>();
   constructor(private readonly deps: ClipCutDeps) {}
 
   /** 구간 하나 자르기 */
@@ -406,6 +407,85 @@ export class ClipCutService {
   }
 
   // -------------------------------------------------------------------------
+
+  /** 영상의 키프레임 시각 목록 (킹컷 키프레임 단위 이동). 같은 파일은 다시 읽지 않도록 캐시한다. */
+  async keyframeTimes(id: string): Promise<number[]> {
+    const item = this.deps.get(id);
+    if (item.kind !== 'video')
+      throw new AppError('INVALID_REQUEST', '영상 항목만 키프레임을 읽을 수 있습니다');
+    if (item.missing || !fs.existsSync(item.path)) throw new AppError('MEDIA_NOT_FOUND', item.path);
+    const st = fs.statSync(item.path);
+    const key = `${item.path}|${String(st.size)}|${String(Math.floor(st.mtimeMs))}`;
+    const hit = this.keyframeCache.get(key);
+    if (hit) return hit;
+    const times = await this.keyframes(item.path, randomUUID(), this.deps.tools().ffprobe);
+    this.keyframeCache.set(key, times);
+    return times;
+  }
+
+  /**
+   * 위치·카메라·촬영 정보 같은 메타데이터를 뺀 사본을 만든다 (킹뷰 위치 정보 제거).
+   * 원본은 읽기만 하고 같은 폴더에 "-clean" 이름으로 저장한다. 픽셀과 재생 시간은 그대로다.
+   */
+  async stripMetadata(
+    id: string,
+  ): Promise<{ outputPath: string; sizeBytes: number; libraryItemId: string | null }> {
+    const item = this.deps.get(id);
+    if (item.kind !== 'video' && item.kind !== 'image')
+      throw new AppError('INVALID_REQUEST', '영상과 이미지만 처리할 수 있습니다');
+    if (item.missing || !fs.existsSync(item.path)) throw new AppError('MEDIA_NOT_FOUND', item.path);
+    const ext = path.extname(item.path).toLowerCase();
+    const dir = path.dirname(item.path);
+    const baseName = `${path.parse(item.path).name}-clean`;
+    const jobId = randomUUID();
+    const temp = tempOutputPath(dir, baseName, jobId, ext.slice(1) || 'bin');
+    assertDiskSpace(dir, Math.max(item.sizeBytes, 16 * 1024 * 1024));
+    const tools = this.deps.tools();
+    try {
+      await this.run(
+        tools.ffmpeg,
+        [
+          ...COMMON,
+          '-i',
+          item.path,
+          '-map',
+          '0',
+          '-map_metadata',
+          '-1',
+          '-map_chapters',
+          '-1',
+          '-c',
+          'copy',
+          temp,
+        ],
+        jobId,
+      );
+      const out = await this.deps.probe.probe(temp, jobId);
+      const srcVideo = item.kind === 'image' ? 1 : 0;
+      if (
+        out.streams.length === 0 ||
+        (srcVideo === 0 && out.durationSec.value === null && item.durationSec !== null)
+      ) {
+        throw new AppError('VALIDATION_FAILED', '사본의 스트림을 읽을 수 없습니다');
+      }
+      const v = out.streams.find((st) => st.kind === 'video');
+      if (!v || (item.width !== null && v.width !== item.width)) {
+        throw new AppError('VALIDATION_FAILED', '사본의 해상도가 원본과 다릅니다');
+      }
+      const finalPath = resolveFinalPath(dir, baseName, ext.slice(1) || 'bin', item.path);
+      finalizeFile(temp, finalPath);
+      const sizeBytes = fs.statSync(finalPath).size;
+      let libraryItemId: string | null = null;
+      try {
+        libraryItemId = await this.deps.indexFile(finalPath);
+      } catch (err) {
+        this.deps.logger.warn('indexing clean copy failed', { finalPath, err: String(err) });
+      }
+      return { outputPath: finalPath, sizeBytes, libraryItemId };
+    } finally {
+      removeAppTempFile(temp);
+    }
+  }
 
   /**
    * 구간 하나를 dest 에 만든다. 실제 방식과 설명 문구, 길이를 돌려준다.

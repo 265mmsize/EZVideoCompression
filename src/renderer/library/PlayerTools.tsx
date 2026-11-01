@@ -3,6 +3,7 @@ import { formatDuration } from '../format';
 import { Button } from '../components/ui';
 import type { CutMode } from '../../shared/types/domain';
 import { libraryApi } from './libraryActions';
+import { notify } from '../stores/appStore';
 import { colorPickerText } from './colorText';
 import {
   addBookmark,
@@ -11,6 +12,7 @@ import {
   FRAME_STEP_SEC,
   loopBackTarget,
   nextBookmark,
+  nextKeyframe,
   normalizeLoop,
   PLAYBACK_RATES,
   panBy,
@@ -25,6 +27,7 @@ import {
 } from './playerMath';
 import { cueAt, parseSubtitles } from './subtitleParse';
 import { screenToImagePixel } from './colorMath';
+import { loupeBackground, regionFromDrag } from '../viewer/viewerMath';
 
 type Rotation = 0 | 90 | 180 | 270;
 export interface CutSpan {
@@ -105,6 +108,8 @@ export function VideoWithTools({
   const [a, setA] = useState<number | null>(null);
   const [b, setB] = useState<number | null>(null);
   const [loopOn, setLoopOn] = useState(false);
+  const [keyframes, setKeyframes] = useState<number[]>([]);
+  const [onTop, setOnTop] = useState(false);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [flipH, setFlipH] = useState(false);
   const [flipV, setFlipV] = useState(false);
@@ -129,12 +134,15 @@ export function VideoWithTools({
   }, [tracks, trackIdx]);
   const cue = tracks.length > 0 ? cueAt(cues, now - subOffset) : null;
 
-  // 같은 항목의 자막 목록을 읽는다 (화면 표시용)
+  // 같은 항목의 자막 목록과 키프레임 목록을 읽는다 (화면 표시와 키프레임 이동용)
   useEffect(() => {
     if (!resumeKey) return;
     let alive = true;
     void libraryApi.subtitles(resumeKey).then((list) => {
       if (alive) setTracks(list);
+    });
+    void libraryApi.keyframes(resumeKey).then((list) => {
+      if (alive) setKeyframes(list);
     });
     return () => {
       alive = false;
@@ -273,6 +281,28 @@ export function VideoWithTools({
         return;
       case 'screenshot':
         if (el && onSaveFrame) void onSaveFrame(el.currentTime);
+        return;
+      case 'keyframe': {
+        if (!el) return;
+        const t = nextKeyframe(keyframes, el.currentTime, action.dir);
+        if (t !== null) el.currentTime = t;
+        else
+          notify(
+            'info',
+            keyframes.length === 0
+              ? '키프레임 정보를 아직 읽지 못했습니다.'
+              : action.dir > 0
+                ? '뒤쪽에 키프레임이 없습니다.'
+                : '앞쪽에 키프레임이 없습니다.',
+          );
+        return;
+      }
+      case 'alwaysOnTop':
+        void libraryApi.setAlwaysOnTop(!onTop).then((r) => {
+          if (!r) return;
+          setOnTop(r.on);
+          notify('info', `창 항상 위: ${r.on ? '켜짐' : '꺼짐'}`);
+        });
         return;
       default:
         return;
@@ -575,7 +605,7 @@ export function VideoWithTools({
         키보드(영상 클릭 후): Space 재생, ←/→ 3초, Shift 10초, Alt 1분, Ctrl+←/→ 한 프레임, Z·X·C
         배속, [ ] A/B, \ 구간 해제, L 반복, R·E 회전, Q 반대 회전, H·V 반전, ↑↓ 볼륨, M 음소거, + -
         확대, , . 자막 싱크, / 싱크 초기화, J 자막 바꾸기, B 책갈피, Shift+PgUp/PgDn 책갈피 이동,
-        PgUp/PgDn 이전·다음, Ctrl+P 스크린샷.
+        PgUp/PgDn 이전·다음, Ctrl+P 스크린샷, Ctrl+Shift+←/→ 키프레임 이동, Ctrl+T 창 항상 위.
       </p>
       {range && (
         <p className="text-xs text-[var(--c-muted)]">
@@ -587,10 +617,10 @@ export function VideoWithTools({
 }
 
 /**
- * 확대·이동이 되는 이미지 보기 (킹뷰 줌·패닝·루페·컬러 피커).
- * - 휠로 커서 위치를 기준으로 확대, 확대 상태에서 끌어서 이동, 더블클릭으로 맞춤
- * - ← → 로 이전·다음 항목, PgUp/PgDn 도 같음
- * - I 키 또는 버튼으로 컬러 피커: 이미지를 클릭하면 그 픽셀의 RGB·HEX·HSL·HSV 를 보여 준다
+ * 확대·이동이 되는 이미지 보기 (킹뷰 줌·패닝·루페·영역 저장·컬러 피커).
+ * - 휠로 커서 위치 기준 확대, 확대 상태에서 끌어서 이동, 더블클릭으로 맞춤
+ * - 누르고 있으면 루페(돋보기), Ctrl+드래그로 영역 선택 후 저장 (onSaveRegion 이 있을 때)
+ * - ← → 로 이전·다음 항목, I 키 또는 버튼으로 컬러 피커
  */
 export function ZoomableImage({
   src,
@@ -599,14 +629,17 @@ export function ZoomableImage({
   width,
   height,
   onStep,
+  onSaveRegion,
 }: {
   src: string;
   alt: string;
   itemId?: string | null;
-  /** 원본 해상도 (컬러 피커의 좌표 변환에 쓴다) */
+  /** 원본 해상도 (컬러 피커와 영역 좌표 변환에 쓴다) */
   width?: number | null;
   height?: number | null;
   onStep?: (dir: 1 | -1) => void;
+  /** 영역 저장. 원본 픽셀 사각형을 넘긴다. 없으면 영역 선택을 쓰지 않는다. */
+  onSaveRegion?: (rect: { x: number; y: number; width: number; height: number }) => void;
 }): ReactNode {
   const boxRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(FIT_VIEW);
@@ -619,11 +652,23 @@ export function ZoomableImage({
     y: number;
   } | null>(null);
   const [pickBusy, setPickBusy] = useState(false);
+  const [boxSize, setBoxSize] = useState({ w: 1, h: 1 });
+  const [loupe, setLoupe] = useState<{ x: number; y: number } | null>(null);
+  const [region, setRegion] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(
+    null,
+  );
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const LOUPE_RADIUS = 80;
+  const LOUPE_ZOOM = 3;
 
   useEffect(() => {
     const el = boxRef.current;
     if (!el) return;
+    const measure = (): void => setBoxSize({ w: el.clientWidth || 1, h: el.clientHeight || 1 });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
     const onWheel = (e: WheelEvent): void => {
       e.preventDefault();
       const r = el.getBoundingClientRect();
@@ -631,7 +676,10 @@ export function ZoomableImage({
       setView((v) => zoomAt(v, factor, e.clientX - r.left, e.clientY - r.top, r.width, r.height));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      ro.disconnect();
+    };
   }, []);
 
   const size = (): { w: number; h: number } => {
@@ -641,6 +689,10 @@ export function ZoomableImage({
   const zoomBy = (factor: number): void => {
     const { w, h } = size();
     setView((v) => zoomAt(v, factor, w / 2, h / 2, w, h));
+  };
+  const clearHold = (): void => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
   };
 
   const doPick = async (clientX: number, clientY: number): Promise<void> => {
@@ -666,13 +718,63 @@ export function ZoomableImage({
     }
   };
 
+  const regionRect = (): { x: number; y: number; width: number; height: number } | null => {
+    if (!region || !width || !height) return null;
+    return regionFromDrag(
+      region.x0,
+      region.y0,
+      region.x1,
+      region.y1,
+      view,
+      boxSize.w,
+      boxSize.h,
+      width,
+      height,
+    );
+  };
+
+  const loupeStyle = (): CSSProperties | null => {
+    if (!loupe || !width || !height) return null;
+    const bg = loupeBackground({
+      cursorX: loupe.x,
+      cursorY: loupe.y,
+      boxW: boxSize.w,
+      boxH: boxSize.h,
+      natW: width,
+      natH: height,
+      zoom: LOUPE_ZOOM,
+      radius: LOUPE_RADIUS,
+    });
+    if (!bg) return null;
+    return {
+      left: loupe.x - LOUPE_RADIUS,
+      top: loupe.y - LOUPE_RADIUS,
+      width: LOUPE_RADIUS * 2,
+      height: LOUPE_RADIUS * 2,
+      backgroundImage: `url("${src}")`,
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: `${String(bg.bgW)}px ${String(bg.bgH)}px`,
+      backgroundPosition: `${String(bg.posX)}px ${String(bg.posY)}px`,
+    };
+  };
+
+  const rect = regionRect();
+  const regionBox = region
+    ? {
+        left: Math.min(region.x0, region.x1),
+        top: Math.min(region.y0, region.y1),
+        width: Math.abs(region.x1 - region.x0),
+        height: Math.abs(region.y1 - region.y0),
+      }
+    : null;
+
   return (
     <div className="space-y-1">
       <div
         ref={boxRef}
         tabIndex={0}
-        aria-label="이미지 보기 (← → 이전·다음, + - 확대, I 컬러 피커)"
-        className={`relative h-[60vh] w-full overflow-hidden bg-black outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)] ${picking ? 'cursor-crosshair' : view.scale > 1 ? 'cursor-grab' : ''}`}
+        aria-label="이미지 보기 (← → 이전·다음, + - 확대, I 컬러 피커, 누르고 있으면 돋보기)"
+        className={`relative h-[60vh] w-full select-none overflow-hidden bg-black outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)] ${picking ? 'cursor-crosshair' : view.scale > 1 ? 'cursor-grab' : ''}`}
         onKeyDown={(e) => {
           if (
             e.key === 'ArrowLeft' ||
@@ -699,26 +801,61 @@ export function ZoomableImage({
           }
         }}
         onMouseDown={(e) => {
+          const r = boxRef.current?.getBoundingClientRect();
+          const x = e.clientX - (r?.left ?? 0);
+          const y = e.clientY - (r?.top ?? 0);
+          if (e.ctrlKey && onSaveRegion && !picking) {
+            setRegion({ x0: x, y0: y, x1: x, y1: y });
+            drag.current = null;
+            return;
+          }
           drag.current = { x: e.clientX, y: e.clientY, moved: false };
+          if (!picking && width && height) {
+            clearHold();
+            holdTimer.current = setTimeout(() => {
+              if (drag.current && !drag.current.moved) setLoupe({ x, y });
+            }, 350);
+          }
         }}
         onMouseMove={(e) => {
+          const r = boxRef.current?.getBoundingClientRect();
+          const x = e.clientX - (r?.left ?? 0);
+          const y = e.clientY - (r?.top ?? 0);
+          if (region) {
+            setRegion((g) => (g ? { ...g, x1: x, y1: y } : g));
+            return;
+          }
           const d = drag.current;
           if (!d || picking) return;
-          if (view.scale <= 1) return;
-          const { w, h } = size();
           const dx = e.clientX - d.x;
           const dy = e.clientY - d.y;
-          if (Math.abs(dx) + Math.abs(dy) > 0) d.moved = true;
+          if (Math.abs(dx) + Math.abs(dy) > 3) {
+            d.moved = true;
+            clearHold();
+          }
+          if (loupe) {
+            setLoupe({ x, y });
+            return;
+          }
+          if (view.scale <= 1) return;
+          const { w, h } = size();
           d.x = e.clientX;
           d.y = e.clientY;
           setView((v) => panBy(v, dx, dy, w, h));
         }}
         onMouseUp={(e) => {
+          clearHold();
+          setLoupe(null);
           const d = drag.current;
           drag.current = null;
+          if (region) return;
           if (picking && d && !d.moved) void doPick(e.clientX, e.clientY);
         }}
-        onMouseLeave={() => (drag.current = null)}
+        onMouseLeave={() => {
+          clearHold();
+          setLoupe(null);
+          drag.current = null;
+        }}
         onDoubleClick={() => setView(FIT_VIEW)}
       >
         <img
@@ -731,7 +868,43 @@ export function ZoomableImage({
             transform: `translate(${String(view.tx)}px, ${String(view.ty)}px) scale(${String(view.scale)})`,
           }}
         />
+        {regionBox && (
+          <div
+            data-testid="region-box"
+            className="pointer-events-none absolute border-2 border-dashed border-white bg-white/10"
+            style={{
+              left: regionBox.left,
+              top: regionBox.top,
+              width: regionBox.width,
+              height: regionBox.height,
+            }}
+          />
+        )}
+        {loupe && loupeStyle() && (
+          <div
+            data-testid="loupe"
+            aria-hidden
+            className="pointer-events-none absolute rounded-full border-2 border-white shadow-lg"
+            style={loupeStyle() ?? undefined}
+          />
+        )}
       </div>
+      {region && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-[var(--c-border)] p-2 text-xs">
+          <span>영역 {rect ? `${String(rect.width)}×${String(rect.height)}` : '(이미지 밖)'}</span>
+          <Button
+            variant="primary"
+            disabled={!rect || !onSaveRegion}
+            onClick={() => {
+              if (rect && onSaveRegion) onSaveRegion(rect);
+              setRegion(null);
+            }}
+          >
+            영역 저장 (원본 해상도, 새 파일)
+          </Button>
+          <Button onClick={() => setRegion(null)}>취소</Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-1 text-xs">
         <Button onClick={() => zoomBy(1.25)} aria-label="확대">
           확대
@@ -758,7 +931,8 @@ export function ZoomableImage({
           컬러 피커 (I)
         </Button>
         <span className="text-[var(--c-muted)]">
-          {Math.round(view.scale * 100)}% · 휠 확대, 끌어 이동, 더블클릭 맞춤
+          {Math.round(view.scale * 100)}% · 휠 확대, 끌어 이동, 누르고 있으면 돋보기
+          {onSaveRegion ? ', Ctrl+드래그로 영역 선택' : ''}
         </span>
       </div>
       {picking && (

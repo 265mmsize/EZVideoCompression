@@ -133,7 +133,9 @@ export type PlayerAction =
   | { type: 'bookmarkStep'; dir: 1 | -1 }
   | { type: 'step'; dir: 1 | -1 }
   | { type: 'screenshot' }
-  | { type: 'picker' };
+  | { type: 'picker' }
+  | { type: 'keyframe'; dir: 1 | -1 }
+  | { type: 'alwaysOnTop' };
 
 /**
  * 키 입력을 플레이어 동작으로 바꾼다. 해당 없는 키는 null (브라우저 기본 동작을 막지 않는다).
@@ -141,7 +143,8 @@ export type PlayerAction =
  * Space/K 재생·정지, ←/→ 3초(Shift 10초, Alt 1분), Ctrl+←/→ 한 프레임, Z/X/C 배속,
  * [ ] A/B 지점, \ 구간 해제, L 구간 반복, Home 처음, R·E 90도 회전, Q 반대 90도, H/V 반전,
  * ↑/↓ 볼륨, M 음소거, + - 확대(0 원래 크기), , . 자막 싱크 0.5초, / 싱크 초기화, J/Shift+J 자막 바꾸기,
- * B 책갈피 추가, Shift+PgUp/PgDn 책갈피 이동, PgUp/PgDn 이전·다음 항목, Ctrl+P 스크린샷, I 컬러 피커.
+ * B 책갈피 추가, Shift+PgUp/PgDn 책갈피 이동, PgUp/PgDn 이전·다음 항목, Ctrl+P 스크린샷, I 컬러 피커,
+ * Ctrl+Shift+←/→ 이전·다음 키프레임, Ctrl+T 창 항상 위.
  */
 export function playerAction(
   key: string,
@@ -150,9 +153,12 @@ export function playerAction(
   alt = false,
 ): PlayerAction | null {
   if (ctrl) {
-    if (key === 'ArrowLeft') return { type: 'frame', dir: -1 };
-    if (key === 'ArrowRight') return { type: 'frame', dir: 1 };
+    if (key === 'ArrowLeft')
+      return shift ? { type: 'keyframe', dir: -1 } : { type: 'frame', dir: -1 };
+    if (key === 'ArrowRight')
+      return shift ? { type: 'keyframe', dir: 1 } : { type: 'frame', dir: 1 };
     if (key === 'p' || key === 'P') return { type: 'screenshot' };
+    if (key === 't' || key === 'T') return { type: 'alwaysOnTop' };
     return null;
   }
   if (alt) {
@@ -226,6 +232,21 @@ export function playerAction(
     default:
       return null;
   }
+}
+
+/**
+ * 키프레임 목록에서 현재 시각보다 뒤(dir 1) 또는 앞(dir -1)의 가장 가까운 키프레임.
+ * 목록이 정렬되어 있을 필요는 없다. 없으면 null.
+ */
+export function nextKeyframe(times: readonly number[], t: number, dir: 1 | -1): number | null {
+  const eps = 0.001;
+  let best: number | null = null;
+  for (const k of times) {
+    if (!Number.isFinite(k)) continue;
+    if (dir === 1 && k > t + eps && (best === null || k < best)) best = k;
+    if (dir === -1 && k < t - eps && (best === null || k > best)) best = k;
+  }
+  return best;
 }
 
 /** 저장된 위치에서 이어볼지 판정한다. 너무 처음이거나 거의 끝이면 처음부터 연다. */

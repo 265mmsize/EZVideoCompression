@@ -15,6 +15,7 @@ export function MediaDetail({
   onClose,
   onCompare,
   onEdit,
+  onViewer,
   onStep,
   width,
   onWidth,
@@ -24,6 +25,7 @@ export function MediaDetail({
   onClose: () => void;
   onCompare: (jobId: string) => void;
   onEdit: (path: string) => void;
+  onViewer: () => void;
   /** 목록에서 이전·다음 항목으로 이동 */
   onStep?: (dir: 1 | -1) => void;
   /** 패널 너비 (px) 또는 '최대' */
@@ -256,6 +258,20 @@ export function MediaDetail({
           {item.kind === 'image' && !item.missing && (
             <Button variant="primary" onClick={() => onEdit(item.path)}>
               이미지 편집
+            </Button>
+          )}
+          {item.kind === 'image' && !item.missing && (
+            <Button onClick={onViewer}>뷰어로 보기 (Ctrl+M)</Button>
+          )}
+          {(item.kind === 'image' || item.kind === 'video') && !item.missing && (
+            <Button
+              onClick={() =>
+                void libraryApi.stripMetadata(item.id).then((r) => {
+                  if (r) notify('info', `위치·메타데이터를 뺀 사본 저장됨: ${r.outputPath}`);
+                })
+              }
+            >
+              위치 정보 제거 사본
             </Button>
           )}
           <Button onClick={() => void libraryApi.showInFolder(item.path)}>탐색기에서 열기</Button>

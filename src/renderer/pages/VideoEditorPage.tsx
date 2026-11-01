@@ -38,6 +38,7 @@ import { MediaPlayer } from '../library/MediaPlayer';
 import { notify } from '../stores/appStore';
 
 const AUTOSAVE_MS = 600;
+const FILMSTRIP_COUNT = 8;
 const PX_PER_SEC_DEFAULT = 40;
 const CANVAS_LABELS: Record<(typeof CANVAS_PRESETS)[number], string> = {
   auto: '자동 (첫 클립 크기)',
@@ -54,6 +55,67 @@ const WM_LABELS: Record<(typeof WATERMARK_POSITIONS)[number], string> = {
   bottomright: '오른쪽 아래',
   center: '가운데',
 };
+
+/** 선택한 클립의 원본 프레임 8장 (구간 안에서 고르게). 한 장씩 차례로 읽는다. 원본 기준이라 효과·전환은 보이지 않는다. */
+function FilmStrip({ clip }: { clip: EditClip }): ReactNode {
+  const [frames, setFrames] = useState<(string | null)[]>([]);
+  useEffect(() => {
+    const live = { on: true };
+    const span = Math.max(0, clip.outSec - clip.inSec);
+    void (async () => {
+      for (let i = 0; i < FILMSTRIP_COUNT; i++) {
+        const t = clip.inSec + (span * (i + 0.5)) / FILMSTRIP_COUNT;
+        const url = await libraryApi.editFrame(clip.path, t);
+        if (!live.on) return;
+        setFrames((prev) => {
+          const next = [...prev];
+          next[i] = url;
+          return next;
+        });
+      }
+    })();
+    return () => {
+      live.on = false;
+    };
+  }, [clip.path, clip.inSec, clip.outSec]);
+  return (
+    <div
+      role="img"
+      aria-label="필름스트립 (선택 클립의 원본 프레임)"
+      className="mb-1 flex h-16 gap-px overflow-hidden rounded border border-[var(--c-border)] bg-black"
+    >
+      {Array.from({ length: FILMSTRIP_COUNT }, (_, i) => {
+        const u = frames[i];
+        return u ? (
+          <img key={i} src={u} alt="" className="h-full min-w-0 flex-1 object-cover" />
+        ) : (
+          <div key={i} className="h-full flex-1 bg-[var(--c-surface-2)]" />
+        );
+      })}
+    </div>
+  );
+}
+
+/** 끌어 놓은 x 좌표(픽셀)가 놓인 클립의 가운데 앞쪽 위치. 그 클립 자리로 옮긴다. */
+function dropIndexAt(clips: EditClip[], starts: number[], xPx: number, pxPerSec: number): number {
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i];
+    if (!c) continue;
+    const mid = ((starts[i] ?? 0) + clipDur(c) / 2) * pxPerSec;
+    if (xPx < mid) return i;
+  }
+  return Math.max(0, clips.length - 1);
+}
+
+/** 클립 하나를 다른 위치로 옮긴 새 프로젝트를 돌려준다 (원본 객체는 바꾸지 않는다) */
+function reorderClip(p: EditProject, id: string, to: number): EditProject {
+  const from = p.clips.findIndex((c) => c.id === id);
+  if (from < 0 || to < 0 || to >= p.clips.length || from === to) return p;
+  const next = [...p.clips];
+  const [c] = next.splice(from, 1);
+  if (c) next.splice(to, 0, c);
+  return { ...p, clips: next };
+}
 
 function locate(clips: EditClip[], time: number): { index: number; sourceSec: number } | null {
   const { starts } = layout(clips);
@@ -82,6 +144,7 @@ export function VideoEditorPage(): ReactNode {
   const [render, setRender] = useState<EditRenderProgress | null>(null);
   const [panel, setPanel] = useState<'clip' | 'project' | 'export'>('clip');
   const dirty = useRef(false);
+  const dragClip = useRef<string | null>(null);
 
   const refreshList = useCallback(async (): Promise<void> => {
     const list = await libraryApi.editProjects();
@@ -295,6 +358,30 @@ export function VideoEditorPage(): ReactNode {
     }));
     setSelectedClip(right.id);
   };
+  /** 미저장 변경을 먼저 기록한다. 변경이 없거나 기록에 성공하면 true. */
+  const flushSave = async (): Promise<boolean> => {
+    const cur = projRef.current;
+    if (!cur || !dirty.current) return true;
+    const saved = await libraryApi.editSave(cur);
+    if (saved) dirty.current = false;
+    return Boolean(saved);
+  };
+  /** 현재 프로젝트를 .kcp 파일로 내보낸다 (원본 미디어는 건드리지 않는다) */
+  const saveKcp = async (): Promise<void> => {
+    const cur = projRef.current;
+    if (!cur || !(await flushSave())) return;
+    const r = await libraryApi.exportKcp(cur.id);
+    if (r) notify('info', `프로젝트 파일 저장됨: ${r.path}`);
+  };
+  /** .kcp 파일을 새 프로젝트로 가져와 연다 */
+  const openKcp = async (): Promise<void> => {
+    if (!(await flushSave())) return;
+    const r = await libraryApi.importKcp();
+    if (!r) return;
+    await refreshList();
+    await open(r.id);
+    notify('info', `프로젝트를 열었습니다: ${r.name}`);
+  };
   const moveClip = (id: string, dir: -1 | 1): void => {
     update((p) => {
       const i = p.clips.findIndex((c) => c.id === id);
@@ -390,6 +477,7 @@ export function VideoEditorPage(): ReactNode {
           <Button variant="primary" onClick={() => void createProject()}>
             새 프로젝트
           </Button>
+          <Button onClick={() => void openKcp()}>.kcp 파일 열기</Button>
           <span className="text-xs text-[var(--c-muted)]">
             클립을 이어 붙이고 자르기·속도·전환·텍스트·배경 음악·워터마크·손떨림 보정을 적용해 새
             영상으로 내보냅니다. 원본은 수정하지 않습니다.
@@ -421,6 +509,7 @@ export function VideoEditorPage(): ReactNode {
   }
 
   const at = locate(clips, playhead);
+  const selClip = clips.find((c) => c.id === selectedClip) ?? null;
   const rendering = render?.status === 'running';
 
   return (
@@ -453,6 +542,9 @@ export function VideoEditorPage(): ReactNode {
         </Button>
         <Button onClick={splitAtPlayhead} disabled={!at}>
           재생 헤드에서 분할
+        </Button>
+        <Button onClick={() => void saveKcp()} aria-label="프로젝트 파일 저장">
+          .kcp 저장
         </Button>
         <span className="text-xs text-[var(--c-muted)]">
           전체 {formatDuration(total)} · 클립 {clips.length}개
@@ -488,7 +580,7 @@ export function VideoEditorPage(): ReactNode {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
             {render?.status === 'done' && render.previewId ? (
-              <div className="w-full max-w-4xl p-2">
+              <div className="max-h-full w-full max-w-4xl overflow-auto p-2">
                 <MediaPlayer media={{ kind: 'preview', id: render.previewId }} itemId={null} />
                 <p className="mt-1 text-center text-xs text-[var(--c-muted)]">
                   {render.mode === 'proxy'
@@ -548,10 +640,29 @@ export function VideoEditorPage(): ReactNode {
                 />
               </label>
             </div>
+            {selClip && (
+              <FilmStrip
+                key={`${selClip.path}|${selClip.inSec}|${selClip.outSec}`}
+                clip={selClip}
+              />
+            )}
             <div
               className="relative h-24 overflow-x-auto rounded border border-[var(--c-border)] bg-[var(--c-surface-2)]"
               role="list"
               aria-label="타임라인"
+              onDragOver={(e) => {
+                if (dragClip.current) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = dragClip.current;
+                dragClip.current = null;
+                if (!from) return;
+                const box = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - box.left + e.currentTarget.scrollLeft;
+                const to = dropIndexAt(clips, starts, x, pxPerSec);
+                update((p) => reorderClip(p, from, to));
+              }}
             >
               <div
                 className="relative h-full"
@@ -568,6 +679,15 @@ export function VideoEditorPage(): ReactNode {
                       role="listitem"
                       aria-label={`클립 ${String(i + 1)}: ${c.fileName}`}
                       aria-selected={active}
+                      draggable
+                      onDragStart={(e) => {
+                        dragClip.current = c.id;
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', c.id);
+                      }}
+                      onDragEnd={() => {
+                        dragClip.current = null;
+                      }}
                       title={`${c.fileName} ${c.inSec.toFixed(2)}–${c.outSec.toFixed(2)}초 ×${String(c.speed)}`}
                       onClick={() => {
                         setSelectedClip(c.id);

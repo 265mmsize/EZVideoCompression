@@ -43,9 +43,11 @@ const DEFAULT_QUERY: LibraryQuery = {
 export function LibraryPage({
   onCompare,
   onEdit,
+  onViewer,
 }: {
   onCompare: (jobId: string) => void;
   onEdit: (path: string) => void;
+  onViewer: (ids: string[], startId: string) => void;
 }): ReactNode {
   const { indexing, settings } = useAppStore();
   const [roots, setRoots] = useState<LibraryRoot[]>([]);
@@ -164,6 +166,26 @@ export function LibraryPage({
     const next = idx < 0 ? undefined : items[idx + dir];
     if (next) setSelected(new Set([next.id]));
   };
+  /** 현재 목록의 이미지 가운데 선택한 항목부터 킹뷰로 연다 */
+  const openViewer = (startId: string): void => {
+    const ids = items.filter((i) => i.kind === 'image' && !i.missing).map((i) => i.id);
+    if (!ids.includes(startId)) return;
+    onViewer(ids, startId);
+  };
+  // Ctrl+M: 선택한 이미지를 킹뷰로 연다
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'm' || !selectedItem) return;
+      e.preventDefault();
+      openViewer(selectedItem.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // 목록과 선택이 바뀔 때만 다시 등록한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedItem, items]);
   // Alt+1~5: 선택한 항목에 별점을 매기고 다음 항목으로 넘어간다 (킹뷰 별점 선별)
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -341,6 +363,7 @@ export function LibraryPage({
             onClose={() => setSelected(new Set())}
             onCompare={onCompare}
             onEdit={onEdit}
+            onViewer={() => openViewer(selectedItem.id)}
             onStep={stepSelection}
             width={detailWidth}
             onWidth={setDetail}

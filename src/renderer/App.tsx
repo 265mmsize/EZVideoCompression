@@ -7,14 +7,16 @@ import { SettingsPage } from './pages/SettingsPage';
 import { LibraryPage } from './library/LibraryPage';
 import { ImageEditorPage } from './pages/ImageEditorPage';
 import { VideoEditorPage } from './pages/VideoEditorPage';
+import { ViewerPage, type ViewSeed } from './viewer/ViewerPage';
 import { Button } from './components/ui';
 import { recheckTools } from './actions';
 import { errorText, notify, initStore } from './stores/appStore';
 
-type Tab = 'library' | 'jobs' | 'compare' | 'editor' | 'video' | 'history' | 'settings';
+type Tab = 'library' | 'viewer' | 'jobs' | 'compare' | 'editor' | 'video' | 'history' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '라이브러리' },
+  { id: 'viewer', label: '킹뷰' },
   { id: 'jobs', label: '작업 목록' },
   { id: 'compare', label: '비교' },
   { id: 'editor', label: '이미지 편집' },
@@ -34,6 +36,13 @@ export function App(): ReactNode {
   const openEditor = (path: string): void => {
     setEditorPath(path);
     setTab('editor');
+  };
+  const [viewerSeed, setViewerSeed] = useState<ViewSeed | null>(null);
+  const [viewerKey, setViewerKey] = useState(0);
+  const openViewer = (ids: string[], startId: string): void => {
+    setViewerSeed({ ids, startId });
+    setViewerKey((k) => k + 1);
+    setTab('viewer');
   };
   const { ready, tools, settings, notice } = useAppStore();
 
@@ -101,7 +110,9 @@ export function App(): ReactNode {
         {!ready ? (
           <div className="p-6 text-[var(--c-muted)]">불러오는 중…</div>
         ) : tab === 'library' ? (
-          <LibraryPage onCompare={openCompare} onEdit={openEditor} />
+          <LibraryPage onCompare={openCompare} onEdit={openEditor} onViewer={openViewer} />
+        ) : tab === 'viewer' ? (
+          <ViewerPage key={viewerKey} seed={viewerSeed} />
         ) : tab === 'jobs' ? (
           <JobsPage />
         ) : tab === 'compare' ? (

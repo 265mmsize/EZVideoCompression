@@ -12,7 +12,7 @@ import {
   type InvokeContract,
   type IpcResult,
 } from '../../shared/contracts/ipc';
-import { invokeSchemas } from '../../shared/schemas/ipc.schemas';
+import { invokeSchemas, kcpFileSchema } from '../../shared/schemas/ipc.schemas';
 import type { AppServices } from '../container';
 import { AppError } from '../services/AppError';
 import { toView } from '../repositories/JobRepository';
@@ -20,6 +20,12 @@ import { loadSubtitlesFor } from '../services/library/LibrarySubtitles';
 
 /** 파일/폴더 대화상자와 저장 대화상자는 창 의존이므로 주입받는다 */
 export interface DialogPort {
+  /** 뷰어: 이미지 또는 ZIP/CBZ 한 개 */
+  pickViewerFile: () => Promise<string | null>;
+  pickViewerFolder: () => Promise<string | null>;
+  /** .kcp 프로젝트 파일 저장 위치 */
+  saveKcp: (defaultName: string) => Promise<string | null>;
+  openKcp: () => Promise<string | null>;
   pickFiles: () => Promise<string[] | null>;
   pickFolder: () => Promise<string | null>;
   /** 라이브러리 폴더 선택 (pickFolder 와 같은 대화상자, 제목만 다름) */
@@ -45,9 +51,15 @@ export interface CapturePort {
   ) => Promise<InvokeContract['capture:take']['response']>;
 }
 
+/** 창 제어 (항상 위). 메인 창이 없으면 아무 일도 하지 않는다. */
+export interface WindowPort {
+  setAlwaysOnTop: (on: boolean) => boolean;
+}
+
 export interface IpcDeps {
   services: AppServices;
   dialogs: DialogPort;
+  windowCtl: WindowPort;
   capture: CapturePort | null;
   appVersion: string;
   isPackaged: boolean;
@@ -181,6 +193,51 @@ export function registerIpc(deps: IpcDeps): void {
       return loadSubtitlesFor(item.path);
     },
     'library:pixel': ({ id, x, y }) => s.imageEdit.pixel(s.library.get(id).path, x, y),
+    'viewer:pickFile': async () => {
+      const p = await dialogs.pickViewerFile();
+      return p ? { path: p } : null;
+    },
+    'viewer:pickFolder': async () => {
+      const p = await dialogs.pickViewerFolder();
+      return p ? { path: p } : null;
+    },
+    'viewer:listFolder': ({ path: dir }) => ({ paths: s.archive.folderImages(dir) }),
+    'archive:list': ({ path: zip }) => s.archive.list(zip),
+    'archive:open': ({ path: zip, name }) => s.archive.open(zip, name),
+    'library:keyframes': async ({ id }) => ({ times: await s.clipCut.keyframeTimes(id) }),
+    'library:stripMetadata': ({ id }) => s.clipCut.stripMetadata(id),
+    'window:alwaysOnTop': ({ on }) => ({ on: deps.windowCtl.setAlwaysOnTop(on) }),
+    'edit:exportKcp': async ({ projectId }) => {
+      const project = s.videoEdit.get(projectId);
+      const target = await dialogs.saveKcp(
+        `${project.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || '프로젝트'}.kcp`,
+      );
+      if (!target) return null;
+      const out = target.toLowerCase().endsWith('.kcp') ? target : `${target}.kcp`;
+      fs.writeFileSync(
+        out,
+        JSON.stringify({ format: 'kcp', version: 1, project }, null, 2),
+        'utf8',
+      );
+      return { path: out };
+    },
+    'edit:importKcp': async () => {
+      const file = await dialogs.openKcp();
+      if (!file) return null;
+      const st = fs.statSync(file);
+      if (st.size > 5 * 1024 * 1024)
+        throw new AppError('INVALID_REQUEST', '.kcp 파일이 너무 큽니다');
+      let raw: unknown;
+      try {
+        raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch (err) {
+        throw new AppError('INVALID_REQUEST', '.kcp 파일을 읽을 수 없습니다', { cause: err });
+      }
+      const parsed = kcpFileSchema.safeParse(raw);
+      if (!parsed.success)
+        throw new AppError('INVALID_REQUEST', '.kcp 파일 형식이 올바르지 않습니다');
+      return s.videoEdit.importProject(parsed.data.project);
+    },
 
     'image:open': ({ path }) => s.imageEdit.open(path),
     'image:pickOpen': async () => {

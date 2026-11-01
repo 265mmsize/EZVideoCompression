@@ -27,6 +27,7 @@ import { MediaTokenRegistry } from './services/library/MediaTokenRegistry';
 import { PreviewService } from './services/library/PreviewService';
 import { ThumbnailService } from './services/library/ThumbnailService';
 import { ImageEditService } from './services/image/ImageEditService';
+import { ArchiveService } from './services/archive/ArchiveService';
 import { EditProjectRepository } from './repositories/EditProjectRepository';
 import { VideoEditService, findDefaultFont } from './services/edit/VideoEditService';
 import type { EventChannel } from '../shared/contracts/ipc';
@@ -59,6 +60,7 @@ export interface AppServices {
   indexer: LibraryIndexer;
   previews: PreviewService;
   imageEdit: ImageEditService;
+  archive: ArchiveService;
   videoEdit: VideoEditService;
   tokens: MediaTokenRegistry;
   /** 마지막 탐지 결과 */
@@ -198,6 +200,11 @@ export function createServices(opts: ContainerOptions): AppServices {
     logger,
     indexFile: (p) => library.indexFile(p),
   });
+  const archive = new ArchiveService({
+    tokens,
+    cacheDir: path.join(opts.userDataDir, 'archive-cache'),
+    logger,
+  });
   const imageEdit = new ImageEditService({
     proc,
     probe,
@@ -223,6 +230,7 @@ export function createServices(opts: ContainerOptions): AppServices {
     indexer,
     previews,
     imageEdit,
+    archive,
     videoEdit,
     clipCut,
     tokens,

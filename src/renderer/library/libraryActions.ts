@@ -93,6 +93,26 @@ export const libraryApi = {
   showInFolder: (path: string) => run('폴더 열기', () => call('shell:showInFolder', { path })),
 
   // ----- 이미지 편집 · 화면 캡처 -----
+  // ----- 뷰어 (킹뷰) -----
+  viewerPickFile: () => run('파일 열기', () => call('viewer:pickFile')),
+  viewerPickFolder: () => run('폴더 열기', () => call('viewer:pickFolder')),
+  viewerListFolder: (path: string) => run('폴더 목록', () => call('viewer:listFolder', { path })),
+  archiveList: (path: string) => run('압축 파일 열기', () => call('archive:list', { path })),
+  archiveOpen: (path: string, name: string) =>
+    run('압축 안 이미지', () => call('archive:open', { path, name })),
+  // ----- 킹컷·킹플레이어 추가 -----
+  keyframes: async (id: string): Promise<number[]> => {
+    try {
+      return (await call('library:keyframes', { id })).times;
+    } catch {
+      return [];
+    }
+  },
+  stripMetadata: (id: string) => run('위치 정보 제거', () => call('library:stripMetadata', { id })),
+  setAlwaysOnTop: (on: boolean) => run('항상 위', () => call('window:alwaysOnTop', { on })),
+  exportKcp: (projectId: string) =>
+    run('프로젝트 저장', () => call('edit:exportKcp', { projectId })),
+  importKcp: () => run('프로젝트 열기', () => call('edit:importKcp')),
   extractAudio: (id: string) => run('음성 추출', () => call('library:extractAudio', { id })),
   cut: (id: string, startSec: number, endSec: number, mode: CutMode) =>
     run('구간 저장', () => call('library:cut', { id, startSec, endSec, mode })),

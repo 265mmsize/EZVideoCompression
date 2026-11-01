@@ -154,6 +154,70 @@ function bootstrap(): void {
         : await dialog.showSaveDialog(options);
       return res.canceled ? null : res.filePath;
     },
+    pickViewerFile: async () => {
+      const options: Electron.OpenDialogOptions = {
+        title: '열어 볼 이미지 또는 압축 파일 (ZIP, CBZ) 선택',
+        properties: ['openFile'],
+        filters: [
+          {
+            name: '이미지와 압축 파일',
+            extensions: [
+              'jpg',
+              'jpeg',
+              'png',
+              'gif',
+              'webp',
+              'bmp',
+              'avif',
+              'tif',
+              'tiff',
+              'zip',
+              'cbz',
+            ],
+          },
+          { name: '모든 파일', extensions: ['*'] },
+        ],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return res.canceled ? null : (res.filePaths[0] ?? null);
+    },
+    pickViewerFolder: async () => {
+      const options: Electron.OpenDialogOptions = {
+        title: '이미지 폴더 선택',
+        properties: ['openDirectory'],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return res.canceled ? null : (res.filePaths[0] ?? null);
+    },
+    saveKcp: async (defaultName) => {
+      const options: Electron.SaveDialogOptions = {
+        title: '킹컷 프로젝트 파일 저장 (.kcp)',
+        defaultPath: defaultName,
+        filters: [{ name: '프로젝트', extensions: ['kcp'] }],
+      };
+      const res = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options);
+      return res.canceled ? null : res.filePath;
+    },
+    openKcp: async () => {
+      const options: Electron.OpenDialogOptions = {
+        title: '킹컷 프로젝트 파일 열기 (.kcp)',
+        properties: ['openFile'],
+        filters: [
+          { name: '프로젝트', extensions: ['kcp'] },
+          { name: '모든 파일', extensions: ['*'] },
+        ],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return res.canceled ? null : (res.filePaths[0] ?? null);
+    },
     pickMedia: async (kind) => {
       const filters: Electron.FileFilter[] =
         kind === 'video'
@@ -220,6 +284,13 @@ function bootstrap(): void {
   registerIpc({
     services,
     dialogs,
+    windowCtl: {
+      setAlwaysOnTop: (on) => {
+        if (!mainWindow) return false;
+        mainWindow.setAlwaysOnTop(on);
+        return mainWindow.isAlwaysOnTop();
+      },
+    },
     capture: {
       sources: () => capture.sources(),
       take: (id, delay, hide) => capture.take(id, delay, hide),

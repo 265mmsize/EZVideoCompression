@@ -217,6 +217,32 @@ export interface InvokeContract {
   };
 
   // ----- 영상 편집기 (1.4.0) -----
+  /** 뷰어: 이미지 또는 ZIP/CBZ 파일 고르기 */
+  'viewer:pickFile': { request: void; response: { path: string } | null };
+  /** 뷰어: 폴더 고르기 */
+  'viewer:pickFolder': { request: void; response: { path: string } | null };
+  /** 폴더 안 이미지 목록 (자연 정렬, 직계 파일만) */
+  'viewer:listFolder': { request: { path: string }; response: { paths: string[] } };
+  /** 압축 파일(ZIP, CBZ) 안 이미지 목록 */
+  'archive:list': { request: { path: string }; response: { name: string; size: number }[] };
+  /** 압축 파일 안 이미지 하나를 연다 (캐시에 풀어 토큰 URL 로 돌려준다) */
+  'archive:open': {
+    request: { path: string; name: string };
+    response: { url: string; mime: string };
+  };
+  /** 라이브러리 영상의 키프레임 시각 목록 (킹컷 키프레임 단위 이동) */
+  'library:keyframes': { request: { id: string }; response: { times: number[] } };
+  /** 위치·촬영 정보를 뺀 사본 저장 (원본은 그대로) */
+  'library:stripMetadata': {
+    request: { id: string };
+    response: { outputPath: string; sizeBytes: number; libraryItemId: string | null };
+  };
+  /** 창을 항상 위에 둔다 (킹플레이어 Ctrl+T) */
+  'window:alwaysOnTop': { request: { on: boolean }; response: { on: boolean } };
+  /** 편집 프로젝트를 .kcp 파일로 저장 */
+  'edit:exportKcp': { request: { projectId: string }; response: { path: string } | null };
+  /** .kcp 파일을 새 프로젝트로 가져오기 */
+  'edit:importKcp': { request: void; response: { id: string; name: string } | null };
   'edit:projects.list': { request: void; response: EditProjectSummary[] };
   'edit:project.create': { request: { name: string }; response: EditProject };
   'edit:project.get': { request: { id: string }; response: EditProject };
@@ -332,6 +358,16 @@ export const CHANNEL_NAMES = {
     'library:saveFrame',
     'library:subtitles',
     'library:pixel',
+    'viewer:pickFile',
+    'viewer:pickFolder',
+    'viewer:listFolder',
+    'archive:list',
+    'archive:open',
+    'library:keyframes',
+    'library:stripMetadata',
+    'window:alwaysOnTop',
+    'edit:exportKcp',
+    'edit:importKcp',
     'image:open',
     'image:pickOpen',
     'image:preview',

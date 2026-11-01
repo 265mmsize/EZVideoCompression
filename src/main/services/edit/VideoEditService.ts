@@ -141,6 +141,20 @@ export class VideoEditService {
     return next;
   }
 
+  /** .kcp 파일에서 읽은 프로젝트를 새 항목으로 저장한다 (기존 프로젝트를 덮어쓰지 않도록 새 ID 를 준다) */
+  importProject(p: EditProject): { id: string; name: string } {
+    const now = this.now();
+    const next: EditProject = {
+      ...p,
+      id: randomUUID(),
+      name: p.name.trim() || '가져온 프로젝트',
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.deps.repo.insert(next);
+    return { id: next.id, name: next.name };
+  }
+
   delete(id: string): boolean {
     return this.deps.repo.delete(id);
   }

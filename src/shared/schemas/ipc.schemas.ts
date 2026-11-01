@@ -144,6 +144,12 @@ const editClipSchema = z.object({
   transition: z.object({ type: z.enum(TRANSITIONS), durationSec: z.number().min(0.1).max(5) }),
   texts: z.array(editTextSchema).max(20),
 });
+export const kcpFileSchema = z.object({
+  format: z.literal('kcp'),
+  version: z.literal(1),
+  project: z.lazy(() => editProjectSchema),
+});
+
 export const editProjectSchema = z.object({
   id: idSchema,
   name: z.string().min(1).max(120),
@@ -328,6 +334,16 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
     defaultName: z.string().min(1).max(255),
     format: z.enum(['jpeg', 'png', 'webp']),
   }),
+  'viewer:pickFile': voidSchema,
+  'viewer:pickFolder': voidSchema,
+  'viewer:listFolder': z.object({ path: absolutePath }),
+  'archive:list': z.object({ path: absolutePath }),
+  'archive:open': z.object({ path: absolutePath, name: z.string().min(1).max(1024) }),
+  'library:keyframes': z.object({ id: idSchema }),
+  'library:stripMetadata': z.object({ id: idSchema }),
+  'window:alwaysOnTop': z.object({ on: z.boolean() }),
+  'edit:exportKcp': z.object({ projectId: idSchema }),
+  'edit:importKcp': voidSchema,
   'edit:projects.list': voidSchema,
   'edit:project.create': z.object({ name: z.string().min(1).max(120) }),
   'edit:project.get': z.object({ id: idSchema }),
