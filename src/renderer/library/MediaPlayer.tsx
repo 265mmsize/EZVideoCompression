@@ -78,6 +78,7 @@ function MediaPlayerInner({
           srcWidth={source.width}
           srcHeight={source.height}
           onError={() => setPlaybackFailed(true)}
+          resumeKey={itemId}
           onCut={
             itemId
               ? async (range, mode) => {

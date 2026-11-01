@@ -10,6 +10,8 @@ import {
   panBy,
   playerAction,
   stepRate,
+  resumeStorageKey,
+  shouldResume,
   zoomAt,
   type LoopRange,
   type View,
@@ -17,6 +19,16 @@ import {
 import type { CutMode } from '../../shared/types/domain';
 
 type Rotation = 0 | 90 | 180 | 270;
+
+/** 저장된 이어보기 위치 (없거나 저장소를 못 읽으면 null) */
+function readResume(id: string): number | null {
+  try {
+    const raw = localStorage.getItem(resumeStorageKey(id));
+    return raw === null ? null : Number(raw);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 영상 플레이어 + 보기 도구 (구간 반복, 재생 속도, 보기 회전·반전, 구간 저장, 키보드 조작).
@@ -30,11 +42,14 @@ export function VideoWithTools({
   srcHeight,
   onError,
   onCut,
+  resumeKey,
 }: {
   src: string;
   srcWidth: number | null;
   srcHeight: number | null;
   onError?: () => void;
+  /** 이어보기 위치를 저장할 키 (항목 ID). 없으면 이어보기를 하지 않는다. */
+  resumeKey?: string | null;
   /** 구간 저장. 없으면 구간 저장 버튼을 숨긴다 (미리보기 변환본 등). */
   onCut?: (range: LoopRange, mode: CutMode) => Promise<void>;
 }): ReactNode {
@@ -60,10 +75,31 @@ export function VideoWithTools({
     if (el) el.playbackRate = rate;
   }, [rate, src]);
 
+  const lastSaved = useRef(0);
+  const saveResume = (el: HTMLVideoElement): void => {
+    if (!resumeKey) return;
+    const t = Date.now();
+    if (t - lastSaved.current < 2000) return;
+    lastSaved.current = t;
+    try {
+      localStorage.setItem(resumeStorageKey(resumeKey), String(el.currentTime));
+    } catch {
+      // 저장소를 못 써도 재생에는 지장이 없다
+    }
+  };
+  const restoreResume = (el: HTMLVideoElement): void => {
+    if (!resumeKey) return;
+    const saved = readResume(resumeKey);
+    if (shouldResume(saved, Number.isFinite(el.duration) ? el.duration : null)) {
+      el.currentTime = saved ?? 0;
+    }
+  };
+
   const onTimeUpdate = (): void => {
     const el = ref.current;
     if (!el) return;
     setNow(el.currentTime);
+    saveResume(el);
     const target = loopBackTarget(el.currentTime, normalizeLoop(a, b, el.duration));
     if (loopOn && target !== null) el.currentTime = target;
   };
@@ -102,6 +138,14 @@ export function VideoWithTools({
         return;
       case 'loop':
         if (span) setLoopOn((v) => !v);
+        return;
+      case 'clearRange':
+        setA(null);
+        setB(null);
+        setLoopOn(false);
+        return;
+      case 'home':
+        if (el) el.currentTime = 0;
         return;
       case 'rotate':
         setRotation((r) => ((r + 90) % 360) as Rotation);
@@ -173,6 +217,7 @@ export function VideoWithTools({
             if (!el) return;
             el.playbackRate = rate;
             setDuration(Number.isFinite(el.duration) ? el.duration : null);
+            restoreResume(el);
           }}
         >
           <track kind="captions" />

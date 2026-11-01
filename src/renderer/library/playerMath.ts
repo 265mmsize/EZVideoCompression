@@ -3,7 +3,8 @@
  * 구간 반복, 재생 속도, 확대·이동 보기의 규칙을 한곳에 둔다. 테스트에서 직접 검증한다.
  */
 
-export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+/** 킹플레이어 도움말 기준 0.25~4배 */
+export const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4] as const;
 export type PlaybackRate = (typeof PLAYBACK_RATES)[number];
 
 export const MIN_LOOP_SEC = 0.2;
@@ -114,6 +115,8 @@ export type PlayerAction =
   | { type: 'markA' }
   | { type: 'markB' }
   | { type: 'loop' }
+  | { type: 'clearRange' }
+  | { type: 'home' }
   | { type: 'rotate' }
   | { type: 'flipH' }
   | { type: 'flipV' };
@@ -124,9 +127,18 @@ export type PlayerAction =
  * [ ] A/B 지점, L 구간 반복, R 회전, H/V 반전.
  */
 export function playerAction(key: string, shift: boolean, ctrl: boolean): PlayerAction | null {
-  if (ctrl) return null;
+  // Ctrl+←/→ 는 한 프레임 이동 (도움말 기준). 나머지 Ctrl 조합은 브라우저 단축키와 겹치므로 처리하지 않는다.
+  if (ctrl) {
+    if (key === 'ArrowLeft') return { type: 'frame', dir: -1 };
+    if (key === 'ArrowRight') return { type: 'frame', dir: 1 };
+    return null;
+  }
   const k = key.length === 1 ? key.toLowerCase() : key;
   switch (k) {
+    case 'Home':
+      return { type: 'home' };
+    case '\\':
+      return { type: 'clearRange' };
     case ' ':
     case 'k':
       return { type: 'toggle' };
@@ -159,4 +171,19 @@ export function playerAction(key: string, shift: boolean, ctrl: boolean): Player
     default:
       return null;
   }
+}
+
+// ----- 이어보기 -----
+
+/** 저장된 위치에서 이어볼지 판정한다. 너무 처음이거나 거의 끝이면 처음부터 연다. */
+export function shouldResume(savedSec: number | null, durationSec: number | null): boolean {
+  if (savedSec === null || !Number.isFinite(savedSec)) return false;
+  if (savedSec < 3) return false;
+  if (durationSec !== null && savedSec > durationSec - 5) return false;
+  return true;
+}
+
+/** 이어보기 저장 키 (브라우저 저장소, 사용자 편의 설정) */
+export function resumeStorageKey(id: string): string {
+  return `vslim.resume.${id}`;
 }

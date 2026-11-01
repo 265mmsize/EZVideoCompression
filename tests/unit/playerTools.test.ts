@@ -37,8 +37,10 @@ describe('구간 반복', () => {
 
   it('재생 속도는 단계별로만 움직이고 끝에서 머문다', () => {
     expect(stepRate(1, 1)).toBe(1.25);
-    expect(stepRate(2, 1)).toBe(2);
-    expect(stepRate(0.5, -1)).toBe(0.5);
+    expect(stepRate(2, 1)).toBe(3);
+    expect(stepRate(4, 1)).toBe(4); // 최대 4배에서 머문다
+    expect(stepRate(0.25, -1)).toBe(0.25);
+    expect(stepRate(0.5, -1)).toBe(0.25);
     expect(stepRate(1.25, -1)).toBe(1);
     expect(stepRate(1.3, 1)).toBe(1.25); // 목록에 없는 값은 1배 기준으로 계산
   });

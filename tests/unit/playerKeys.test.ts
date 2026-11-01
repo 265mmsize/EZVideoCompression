@@ -2,7 +2,12 @@
  * 플레이어 키보드 매핑과 편집 도구 순수 로직 검증
  */
 import { describe, expect, it } from 'vitest';
-import { FRAME_STEP_SEC, playerAction } from '../../src/renderer/library/playerMath';
+import {
+  FRAME_STEP_SEC,
+  playerAction,
+  resumeStorageKey,
+  shouldResume,
+} from '../../src/renderer/library/playerMath';
 
 describe('플레이어 키보드 동작', () => {
   it('재생·탐색·배속 키를 동작으로 바꾼다', () => {
@@ -25,6 +30,22 @@ describe('플레이어 키보드 동작', () => {
     // Ctrl 이 들어가면 브라우저 단축키와 겹치므로 처리하지 않는다
     expect(playerAction('c', false, true)).toBeNull();
     expect(playerAction('q', false, false)).toBeNull();
+  });
+
+  it('도움말의 추가 단축키: Ctrl+←/→ 한 프레임, Home 처음, \\ 구간 해제', () => {
+    expect(playerAction('ArrowLeft', false, true)).toEqual({ type: 'frame', dir: -1 });
+    expect(playerAction('ArrowRight', false, true)).toEqual({ type: 'frame', dir: 1 });
+    expect(playerAction('Home', false, false)).toEqual({ type: 'home' });
+    expect(playerAction('\\', false, false)).toEqual({ type: 'clearRange' });
+  });
+
+  it('이어보기는 3초 이상, 끝에서 5초 이상 남았을 때만 이어서 연다', () => {
+    expect(shouldResume(null, 100)).toBe(false);
+    expect(shouldResume(2, 100)).toBe(false);
+    expect(shouldResume(42, 100)).toBe(true);
+    expect(shouldResume(98, 100)).toBe(false);
+    expect(shouldResume(42, null)).toBe(true);
+    expect(resumeStorageKey('abc')).toBe('vslim.resume.abc');
   });
 
   it('프레임 한 칸은 30fps 기준 1/30초다', () => {

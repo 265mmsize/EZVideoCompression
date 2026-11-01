@@ -21,11 +21,11 @@
 | `npm run lint`                                     | 통과 (strict type-checked ESLint)                                                                                                               |
 | `npm run format:check`                             | 통과 (Prettier)                                                                                                                                 |
 | `npm run build`                                    | 통과 (main 120 kB, preload 2 kB, renderer 약 636 kB)                                                                                            |
-| `npm test` (단위 + 통합)                           | **181/181 통과** (23개 파일)                                                                                                                    |
+| `npm test` (단위 + 통합)                           | **183/183 통과** (23개 파일)                                                                                                                    |
 | `npm run test:e2e`                                 | **13/13 통과** (앱 4개 + 라이브러리 4개 + 이미지 편집기 2개 + 영상 편집기 2개 + 패키지 앱 1개)                                                  |
 | `npm run pack:linux-dir`                           | 통과 (asar 에 런타임 의존성 포함, 패키지 앱 기동 확인)                                                                                          |
-| `npm run pack:win` (Linux + wine64/wine32 + xvfb)  | **통과**: 1.6.0 NSIS 설치 파일과 포터블 생성                                                                                                    |
-| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.6.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
+| `npm run pack:win` (Linux + wine64/wine32 + xvfb)  | **통과**: 1.7.0 NSIS 설치 파일과 포터블 생성                                                                                                    |
+| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.7.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
 | wine 무인 설치 (`Setup.exe /S`)                    | **실패**: 코드 2 로 즉시 종료, 파일 미배치 (1.0.0 에서 확인한 wine 호환성 문제, 그 뒤 재시도하지 않음). 설치 동작 검증은 Windows 에서 해야 한다 |
 | `npm audit --omit=dev`                             | 취약점 0건 (운영 의존성 기준)                                                                                                                   |
 | `npm audit` (개발 도구 포함)                       | 중간 등급 8건. 개발 도구(electron-builder 등)의 전이 의존성이며 배포 파일에는 포함되지 않는다. 업그레이드 검토 필요                             |
@@ -45,7 +45,7 @@
 | `tests/unit/imageEdit.test.ts`         | 9/9   | 결과 크기 계산(자르기·회전·미세 회전 반올림·크기), 자르기 경계, 필터 체인 순서와 인자, 형식 결정, JPEG/PNG/WebP 인코더 인자                                                                                                                         |
 | `tests/unit/editGraph.test.ts`         | 10/10 | 클립 길이·전환 겹침·위치 변환, 캔버스 결정(auto·프리셋·미리보기 640), atempo 체인, 필터 인자 이스케이프, 단일 클립 체인(속도·캔버스·텍스트·음성 길이 고정), concat/xfade/acrossfade 오프셋, 음악 amix·워터마크 overlay, 손떨림 보정 패스, 출력 인자 |
 | `tests/unit/playerTools.test.ts`       | 11/11 | 구간 반복 정리·되돌림 시점, 재생 속도 단계, 확대·이동 범위 제한과 커서 고정, 실행 취소 스택(묶기, 분리, 다시 실행 목록 초기화, 100단계 상한)                                                                                                        |
-| `tests/unit/playerKeys.test.ts`        | 3/3   | 플레이어 키 매핑(재생·탐색·배속·구간·회전·반전, Ctrl 조합 제외), 프레임 단위                                                                                                                                                                        |
+| `tests/unit/playerKeys.test.ts`        | 5/5   | 플레이어 키 매핑(재생·탐색·배속·구간·회전·반전, Ctrl 조합 제외), 프레임 단위                                                                                                                                                                        |
 | `tests/unit/editOps.test.ts`           | 4/4   | 같은 길이 나누기(전환·텍스트·id 배분, 너무 짧은 구간), 챕터 시간 형식과 시작 시각                                                                                                                                                                   |
 | `tests/unit/clipCut.test.ts`           | 6/6   | 빠름(입력 탐색·스트림 복사)과 정확(재인코딩) 인자, 컨테이너 결정, 음성 제외 인자                                                                                                                                                                    |
 
