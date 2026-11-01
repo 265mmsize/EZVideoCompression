@@ -11,6 +11,7 @@ import type {
   CacheStats,
   CutMode,
   LibraryCutResult,
+  LibraryAudioResult,
   CaptureResult,
   CaptureSource,
   EditProject,
@@ -164,6 +165,8 @@ export interface InvokeContract {
   'library:cache.stats': { request: void; response: CacheStats };
   'library:cache.clear': { request: void; response: CacheStats };
   /** 라이브러리 영상의 구간을 새 파일로 자른다 (fast: 스트림 복사, exact: 재인코딩) */
+  /** 영상의 음성만 MP3 로 추출한다 */
+  'library:extractAudio': { request: { id: string }; response: LibraryAudioResult };
   'library:cut': {
     request: { id: string; startSec: number; endSec: number; mode: CutMode };
     response: LibraryCutResult;
@@ -304,6 +307,7 @@ export const CHANNEL_NAMES = {
     'library:cache.stats',
     'library:cache.clear',
     'library:cut',
+    'library:extractAudio',
     'image:open',
     'image:pickOpen',
     'image:preview',

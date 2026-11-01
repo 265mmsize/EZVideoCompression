@@ -21,11 +21,11 @@
 | `npm run lint`                                     | 통과 (strict type-checked ESLint)                                                                                                               |
 | `npm run format:check`                             | 통과 (Prettier)                                                                                                                                 |
 | `npm run build`                                    | 통과 (main 120 kB, preload 2 kB, renderer 약 636 kB)                                                                                            |
-| `npm test` (단위 + 통합)                           | **183/183 통과** (23개 파일)                                                                                                                    |
+| `npm test` (단위 + 통합)                           | **190/190 통과** (23개 파일)                                                                                                                    |
 | `npm run test:e2e`                                 | **13/13 통과** (앱 4개 + 라이브러리 4개 + 이미지 편집기 2개 + 영상 편집기 2개 + 패키지 앱 1개)                                                  |
 | `npm run pack:linux-dir`                           | 통과 (asar 에 런타임 의존성 포함, 패키지 앱 기동 확인)                                                                                          |
 | `npm run pack:win` (Linux + wine64/wine32 + xvfb)  | **통과**: 1.7.0 NSIS 설치 파일과 포터블 생성                                                                                                    |
-| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.7.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
+| `npm run verify:win` (7z 로 설치 파일·포터블 해부) | **통과**: app.asar, 앱 실행 파일(버전 정보 1.8.0), 번들 FFmpeg 두 파일의 SHA-256 일치, GPL 전문·제3자 고지, 언인스톨러 포함                     |
 | wine 무인 설치 (`Setup.exe /S`)                    | **실패**: 코드 2 로 즉시 종료, 파일 미배치 (1.0.0 에서 확인한 wine 호환성 문제, 그 뒤 재시도하지 않음). 설치 동작 검증은 Windows 에서 해야 한다 |
 | `npm audit --omit=dev`                             | 취약점 0건 (운영 의존성 기준)                                                                                                                   |
 | `npm audit` (개발 도구 포함)                       | 중간 등급 8건. 개발 도구(electron-builder 등)의 전이 의존성이며 배포 파일에는 포함되지 않는다. 업그레이드 검토 필요                             |

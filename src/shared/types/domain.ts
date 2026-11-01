@@ -688,6 +688,13 @@ export interface CaptureResult {
 export const CUT_MODES = ['fast', 'exact'] as const;
 export type CutMode = (typeof CUT_MODES)[number];
 
+export interface LibraryAudioResult {
+  outputPath: string;
+  durationSec: number;
+  sizeBytes: number;
+  libraryItemId: string | null;
+}
+
 export interface LibraryCutResult {
   outputPath: string;
   durationSec: number;

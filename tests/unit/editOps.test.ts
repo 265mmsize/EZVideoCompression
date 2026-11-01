@@ -6,6 +6,7 @@ import {
   chapterLines,
   formatChapterTime,
   layout,
+  splitByInterval,
   splitEqually,
 } from '../../src/renderer/pages/editOps';
 import type { EditClip } from '../../src/shared/types/domain';
@@ -92,5 +93,40 @@ describe('챕터 텍스트', () => {
     });
     expect(layout([a, b]).starts).toEqual([0, 8]);
     expect(chapterLines([a, b])).toEqual(['0:00 여행 1', '0:08 바다']);
+  });
+});
+
+describe('시간 간격 나누기', () => {
+  it('간격대로 나누고 마지막 조각은 남은 길이만큼 남는다', () => {
+    const c = clip({ inSec: 0, outSec: 10 });
+    const parts = splitByInterval(c, 4, newId);
+    expect(parts.map((p) => [p.inSec, p.outSec])).toEqual([
+      [0, 4],
+      [4, 8],
+      [8, 10],
+    ]);
+  });
+
+  it('마지막 조각이 너무 짧으면 앞 조각에 붙인다', () => {
+    const parts = splitByInterval(clip({ inSec: 0, outSec: 10.1 }), 5, newId);
+    expect(parts.map((p) => [p.inSec, p.outSec])).toEqual([
+      [0, 5],
+      [5, 10.1],
+    ]);
+  });
+
+  it('간격이 너무 작거나 조각이 50개를 넘으면 원래 클립을 돌려준다', () => {
+    const c = clip({ inSec: 0, outSec: 100 });
+    expect(splitByInterval(c, 0.1, newId)).toEqual([c]);
+    expect(splitByInterval(c, 1, newId)).toEqual([c]);
+    expect(splitByInterval(c, Number.NaN, newId)).toEqual([c]);
+  });
+
+  it('간격 나누기도 텍스트는 첫 조각에, 전환은 마지막 조각에 남긴다', () => {
+    const parts = splitByInterval(clip({ inSec: 0, outSec: 9 }), 3, newId);
+    expect(parts).toHaveLength(3);
+    expect(parts[0]?.texts).toHaveLength(1);
+    expect(parts[1]?.texts).toHaveLength(0);
+    expect(parts[2]?.transition.type).toBe('fade');
   });
 });

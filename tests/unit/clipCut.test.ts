@@ -2,7 +2,11 @@
  * 라이브러리 구간 자르기 인자와 컨테이너 결정 (순수 로직)
  */
 import { describe, expect, it } from 'vitest';
-import { buildCutArgs, cutContainerFor } from '../../src/main/services/library/ClipCutService';
+import {
+  buildAudioExtractArgs,
+  buildCutArgs,
+  cutContainerFor,
+} from '../../src/main/services/library/ClipCutService';
 import { outputArgs } from '../../src/main/services/edit/EditGraphBuilder';
 
 describe('구간 자르기 인자', () => {
@@ -59,5 +63,15 @@ describe('음성 제외 내보내기 인자', () => {
     });
     expect(out).toEqual(expect.arrayContaining(['-c:a', 'aac', '-b:a', '192k']));
     expect(out).not.toContain('-an');
+  });
+});
+
+describe('음성 추출 인자', () => {
+  it('영상 스트림을 버리고 음성 첫 트랙을 MP3 로 인코딩한다', () => {
+    const args = buildAudioExtractArgs('/v/a.mp4', '/v/out.mp3');
+    expect(args).toEqual(
+      expect.arrayContaining(['-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-q:a', '2']),
+    );
+    expect(args[args.length - 1]).toBe('/v/out.mp3');
   });
 });

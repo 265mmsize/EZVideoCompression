@@ -122,6 +122,34 @@ export function buildCutArgs(
   ];
 }
 
+export interface AudioExtractResult {
+  outputPath: string;
+  durationSec: number;
+  sizeBytes: number;
+  libraryItemId: string | null;
+}
+
+/** 음성만 MP3 로 (순수 함수). -vn 으로 영상 스트림을 버린다. */
+export function buildAudioExtractArgs(input: string, output: string): string[] {
+  return [
+    '-n',
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-nostdin',
+    '-i',
+    input,
+    '-map',
+    '0:a:0',
+    '-vn',
+    '-c:a',
+    'libmp3lame',
+    '-q:a',
+    '2',
+    output,
+  ];
+}
+
 export class ClipCutService {
   constructor(private readonly deps: ClipCutDeps) {}
 
@@ -198,6 +226,65 @@ export class ClipCutService {
           : ['재인코딩했습니다. 요청한 시점에 정확히 잘랐고 화질은 H.264 CRF 18 기준입니다.'];
       this.deps.logger.info('cut done', { id, finalPath, sizeBytes, outDur, mode });
       return { outputPath: finalPath, durationSec: outDur, sizeBytes, libraryItemId, mode, notes };
+    } finally {
+      removeAppTempFile(temp);
+    }
+  }
+
+  /**
+   * 영상의 음성만 MP3 로 추출한다 (재인코딩, 약 192kbps 가변). 원본은 읽기만 하고 같은 폴더에 "-audio.mp3" 로 저장한다.
+   */
+  async extractAudio(id: string): Promise<AudioExtractResult> {
+    const item = this.deps.get(id);
+    if (item.kind !== 'video')
+      throw new AppError('INVALID_REQUEST', '영상 항목만 음성을 추출할 수 있습니다');
+    if (item.missing || !fs.existsSync(item.path)) throw new AppError('MEDIA_NOT_FOUND', item.path);
+    if (item.audioCodec === null)
+      throw new AppError('INVALID_REQUEST', '음성 트랙이 없는 영상입니다');
+
+    const dir = path.dirname(item.path);
+    const baseName = `${path.parse(item.path).name}-audio`;
+    const jobId = randomUUID();
+    const temp = tempOutputPath(dir, baseName, jobId, 'mp3');
+    if (isSamePath(temp, item.path))
+      throw new AppError('OUTPUT_PATH_CONFLICT', '임시 경로가 원본과 같습니다');
+    assertDiskSpace(dir, 64 * 1024 * 1024);
+
+    const tools = this.deps.tools();
+    this.deps.logger.info('audio extract start', { id });
+    try {
+      const res = await this.deps.proc.run(tools.ffmpeg, buildAudioExtractArgs(item.path, temp), {
+        jobId: `audio-${jobId}`,
+        timeoutMs: CUT_TIMEOUT_MS,
+      });
+      if (res.exitCode !== 0 || !fs.existsSync(temp)) {
+        throw new AppError(
+          'ENCODE_FAILED',
+          res.stderrTail.slice(-5).join('\n') || `코드 ${String(res.exitCode)}`,
+        );
+      }
+      const out = await this.deps.probe.probe(temp, jobId);
+      const a = out.streams.find((x) => x.kind === 'audio');
+      if (!a) throw new AppError('VALIDATION_FAILED', '결과에 음성 트랙이 없습니다');
+      const outDur = out.durationSec.value ?? 0;
+      const srcDur = item.durationSec ?? outDur;
+      const tol = Math.max(0.5, srcDur * 0.01);
+      if (Math.abs(outDur - srcDur) > tol) {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          `결과 ${outDur.toFixed(2)}초, 원본 ${srcDur.toFixed(2)}초`,
+        );
+      }
+      const finalPath = resolveFinalPath(dir, baseName, 'mp3', item.path);
+      finalizeFile(temp, finalPath);
+      const sizeBytes = fs.statSync(finalPath).size;
+      let libraryItemId: string | null = null;
+      try {
+        libraryItemId = await this.deps.indexFile(finalPath);
+      } catch (err) {
+        this.deps.logger.warn('indexing audio failed', { finalPath, err: String(err) });
+      }
+      return { outputPath: finalPath, durationSec: outDur, sizeBytes, libraryItemId };
     } finally {
       removeAppTempFile(temp);
     }

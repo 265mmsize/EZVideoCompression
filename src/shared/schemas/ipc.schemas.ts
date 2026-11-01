@@ -279,6 +279,7 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'library:duplicates.verify': z.object({ ids: z.array(idSchema).min(2).max(200) }),
   'library:cache.stats': voidSchema,
   'library:cache.clear': voidSchema,
+  'library:extractAudio': z.object({ id: idSchema }),
   'library:cut': z.object({
     id: idSchema,
     startSec: z.number().min(0).max(1_000_000),

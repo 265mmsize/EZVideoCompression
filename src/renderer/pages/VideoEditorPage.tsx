@@ -23,7 +23,14 @@ import {
 } from '../../shared/types/domain';
 import { subscribe } from '../api';
 import { emptyHistory, recordChange, redo, undo, type History } from './historyStack';
-import { chapterLines, clipDur, layout, splitEqually, transitionSec } from './editOps';
+import {
+  chapterLines,
+  clipDur,
+  layout,
+  splitByInterval,
+  splitEqually,
+  transitionSec,
+} from './editOps';
 import { Button } from '../components/ui';
 import { formatDuration } from '../format';
 import { libraryApi } from '../library/libraryActions';
@@ -302,6 +309,17 @@ export function VideoEditorPage(): ReactNode {
   const removeClip = (id: string): void => {
     update((p) => ({ ...p, clips: p.clips.filter((c) => c.id !== id) }));
     if (selectedClip === id) setSelectedClip(null);
+  };
+  const splitInterval = (id: string, seconds: number): void => {
+    const target = projRef.current?.clips.find((c) => c.id === id);
+    if (!target) return;
+    const parts = splitByInterval(target, seconds, () => crypto.randomUUID());
+    if (parts.length < 2) {
+      notify('error', '간격이 너무 크거나 작거나, 조각이 50개를 넘어 나눌 수 없습니다');
+      return;
+    }
+    update((p) => ({ ...p, clips: p.clips.flatMap((c) => (c.id === id ? parts : [c])) }));
+    setSelectedClip(parts[0]?.id ?? null);
   };
   const splitEqual = (id: string, n: number): void => {
     const target = projRef.current?.clips.find((c) => c.id === id);
@@ -619,6 +637,7 @@ export function VideoEditorPage(): ReactNode {
                 onRemove={() => removeClip(current.id)}
                 onDuplicate={() => duplicateClip(current.id)}
                 onSplitEqual={(n) => splitEqual(current.id, n)}
+                onSplitInterval={(sec) => splitInterval(current.id, sec)}
               />
             ) : (
               <p className="text-xs text-[var(--c-muted)]">타임라인에서 클립을 선택하세요.</p>
@@ -710,6 +729,7 @@ function ClipPanel({
   onRemove,
   onDuplicate,
   onSplitEqual,
+  onSplitInterval,
 }: {
   clip: EditClip;
   index: number;
@@ -720,7 +740,9 @@ function ClipPanel({
   onRemove: () => void;
   onDuplicate: () => void;
   onSplitEqual: (n: number) => void;
+  onSplitInterval: (seconds: number) => void;
 }): ReactNode {
+  const [interval, setInterval_] = useState(5);
   const [parts, setParts] = useState(2);
   const setIn = (v: number): void =>
     onChange({ inSec: Math.max(0, Math.min(v, clip.outSec - 0.1)) });
@@ -754,6 +776,18 @@ function ClipPanel({
             className="w-14 rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-1"
           />
           <Button onClick={() => onSplitEqual(parts)}>같은 길이로 나누기</Button>
+        </span>
+        <span className="flex items-center gap-1 text-xs">
+          <input
+            type="number"
+            aria-label="나눌 간격(초)"
+            min={0.2}
+            step={1}
+            value={interval}
+            onChange={(e) => setInterval_(Number(e.target.value))}
+            className="w-16 rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-1"
+          />
+          <Button onClick={() => onSplitInterval(interval)}>간격으로 나누기</Button>
         </span>
         <Button variant="danger" onClick={onRemove}>
           제거

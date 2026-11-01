@@ -6,6 +6,7 @@ import { Button } from '../components/ui';
 import { MediaPlayer } from './MediaPlayer';
 import { DETAIL_PRESETS, type DetailWidth } from './detailWidth';
 import { LABEL_COLORS, LABEL_NAMES, libraryApi } from './libraryActions';
+import { notify } from '../stores/appStore';
 
 /** 오른쪽 상세 패널: 미리보기·재생, 정보, 평점·라벨·태그·메모, 압축 연결 */
 export function MediaDetail({
@@ -232,6 +233,21 @@ export function MediaDetail({
           {item.kind === 'video' && !item.missing && (
             <Button variant="primary" onClick={() => void libraryApi.enqueue([item.id])}>
               압축 대기열에 추가
+            </Button>
+          )}
+          {item.kind === 'video' && !item.missing && item.audioCodec !== null && (
+            <Button
+              onClick={() =>
+                void libraryApi.extractAudio(item.id).then((r) => {
+                  if (r)
+                    notify(
+                      'info',
+                      `음성 추출됨: ${r.outputPath} (${formatDuration(r.durationSec)})`,
+                    );
+                })
+              }
+            >
+              음성(.mp3) 추출
             </Button>
           )}
           {item.kind === 'image' && !item.missing && (

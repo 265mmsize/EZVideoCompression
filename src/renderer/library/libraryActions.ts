@@ -92,6 +92,7 @@ export const libraryApi = {
   showInFolder: (path: string) => run('폴더 열기', () => call('shell:showInFolder', { path })),
 
   // ----- 이미지 편집 · 화면 캡처 -----
+  extractAudio: (id: string) => run('음성 추출', () => call('library:extractAudio', { id })),
   cut: (id: string, startSec: number, endSec: number, mode: 'fast' | 'exact') =>
     run('구간 저장', () => call('library:cut', { id, startSec, endSec, mode })),
   imageOpen: (path: string) => run('이미지 열기', () => call('image:open', { path })),

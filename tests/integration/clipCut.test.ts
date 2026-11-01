@@ -106,3 +106,48 @@ describe('라이브러리 구간 자르기', () => {
     });
   }, 120_000);
 });
+
+describe('영상의 음성을 MP3 로 추출', () => {
+  it('음성이 있는 영상은 같은 길이의 MP3 가 생기고, 원본은 그대로다', async () => {
+    const src = copyFixture(ws, 'h264_sdr.mp4', '음성 추출.mp4');
+    const original = path.join(lib, '음성 추출.mp4');
+    fs.copyFileSync(src, original);
+    ws.services.library.reindex(ws.services.library.listRoots()[0]!.id);
+    await ws.services.indexer.idle();
+    const id = indexedItem(original);
+    const before = sha256(original);
+    const dur = durationOf(original);
+    const res = await ws.services.clipCut.extractAudio(id);
+    expect(res.outputPath).toBe(path.join(lib, '음성 추출-audio.mp3'));
+    expect(Math.abs(res.durationSec - dur)).toBeLessThan(0.5);
+    const probe = spawnSync(
+      process.env['FFPROBE_PATH'] ?? 'ffprobe',
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'a:0',
+        '-show_entries',
+        'stream=codec_name',
+        '-of',
+        'csv=p=0',
+        res.outputPath,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(probe.stdout.trim()).toBe('mp3');
+    expect(sha256(original)).toBe(before);
+  }, 300_000);
+
+  it('음성이 없는 영상은 거부한다', async () => {
+    const src = copyFixture(ws, 'no_audio.mp4', '무음 영상.mp4');
+    const original = path.join(lib, '무음 영상.mp4');
+    fs.copyFileSync(src, original);
+    ws.services.library.reindex(ws.services.library.listRoots()[0]!.id);
+    await ws.services.indexer.idle();
+    const id = indexedItem(original);
+    await expect(ws.services.clipCut.extractAudio(id)).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
+  }, 120_000);
+});
