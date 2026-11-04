@@ -188,4 +188,4 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
 - 통합 (실제 FFmpeg, `tests/integration/editTracks.test.ts`): 사분면 영상의 확대·초점 키프레임 결과 픽셀(0.2초 가운데 빨강, 2.5초 노랑), 90도 회전 이미지 오버레이의 세로 길이와 너비, 배속 소리 트랙이 섞인 음성·영상 스트림과 길이.
 - E2E (`tests/e2e/videoTracks.spec.ts`): 메인 클립 확대 키프레임 2개와 실행 취소·다시 실행, 트랙 클립 회전·반전과 실행 취소(이미지에는 배속 없음), 다른 영상 트랙으로 끌어 옮기기와 한 번의 실행 취소, 미리보기 오버레이의 가운데와 너비가 렌더 공식과 1% 안에서 같은지.
 - 확인하지 않은 것: 미리보기 색이 렌더와 같은지, 실제 소리, Windows 실행과 성능.
-- 패키징: `xvfb-run -a npm run pack:win` 과 `npm run verify:win` 결과는 커밋 후 기록한다.
+- 패키징: `xvfb-run -a npm run pack:win` 으로 1.15.0 설치 파일과 포터블 파일을 만들었고 `npm run verify:win` 이 통과했다. 실제 설치와 실행은 Windows 11 에서 확인해야 한다.
