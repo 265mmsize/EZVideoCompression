@@ -46,6 +46,7 @@ import { Button } from '../components/ui';
 import { formatDuration } from '../format';
 import { libraryApi } from '../library/libraryActions';
 import { MediaPlayer } from '../library/MediaPlayer';
+import { TimelinePreview } from './TimelinePreview';
 import { notify } from '../stores/appStore';
 
 const AUTOSAVE_MS = 600;
@@ -168,6 +169,9 @@ export function VideoEditorPage(): ReactNode {
   const [panel, setPanel] = useState<'clip' | 'project' | 'export'>('clip');
   // 구간 선택(눈금 끌기 또는 I·O 키), 다중 선택 클립, 포인터 동작 상태
   const [rangeSel, setRangeSel] = useState<{ a: number; b: number } | null>(null);
+  // 실시간 미리보기 재생 (근사치). 재생을 시작한 위치를 기억해 그 위치부터 다시 그린다.
+  const [playing, setPlaying] = useState(false);
+  const [playFrom, setPlayFrom] = useState(0);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const dragRef = useRef<DragState | null>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -289,7 +293,7 @@ export function VideoEditorPage(): ReactNode {
 
   // 재생 헤드 프레임 (원본, 효과 미적용)
   useEffect(() => {
-    if (!project || clips.length === 0) return;
+    if (!project || clips.length === 0 || playing) return;
     const at = locate(clips, playhead);
     if (!at) return;
     const c = clips[at.index];
@@ -300,7 +304,7 @@ export function VideoEditorPage(): ReactNode {
       });
     }, 150);
     return () => clearTimeout(t);
-  }, [project, clips, playhead]);
+  }, [project, clips, playhead, playing]);
 
   // ----- 프로젝트 동작 -----
   const open = async (id: string): Promise<void> => {
@@ -315,6 +319,7 @@ export function VideoEditorPage(): ReactNode {
     setPlayhead(0);
     setRender(null);
     setFrameUrl(null);
+    setPlaying(false);
   };
   const createProject = async (): Promise<void> => {
     const p = await libraryApi.editCreate(`프로젝트 ${String(projects.length + 1)}`);
@@ -544,7 +549,18 @@ export function VideoEditorPage(): ReactNode {
   const snapped = (t: number): number => snapTime(t, boundaryTimes(clips), 6 / pxPerSec);
   /** 포인터를 붙잡지 않는다. 붙잡으면 클릭이 클립이 아니라 바깥 요소로 가서 선택이 깨진다. */
   const beginDrag = (d: DragState): void => {
+    setPlaying(false);
     dragRef.current = d;
+  };
+  /** 재생·정지. 끝에서 누르면 처음부터 재생한다. */
+  const togglePlay = (): void => {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    if (clips.length === 0) return;
+    setPlayFrom(playhead >= total - 0.05 ? 0 : playhead);
+    setPlaying(true);
   };
   const onPointerMove = (x: number): void => {
     const d = dragRef.current;
@@ -601,6 +617,17 @@ export function VideoEditorPage(): ReactNode {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (!projRef.current || e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key;
+      if (k === ' ') {
+        // 버튼에 초점이 있어도 버튼을 누르지 않고 재생만 바꾼다
+        e.preventDefault();
+        togglePlay();
+        return;
+      }
+      if (k === 'k' || k === 'K') {
+        setPlaying(false);
+        return;
+      }
+      if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'Home' || k === 'End') setPlaying(false);
       if (k === 'i' || k === 'I') {
         e.preventDefault();
         setInPoint();
@@ -679,6 +706,7 @@ export function VideoEditorPage(): ReactNode {
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
         <Button
           onClick={() => {
+            setPlaying(false);
             projRef.current = null;
             setProject(null);
             void refreshList();
@@ -740,7 +768,27 @@ export function VideoEditorPage(): ReactNode {
         {/* 미리보기 */}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
-            {render?.status === 'done' && render.previewId ? (
+            {playing && clips.length > 0 ? (
+              <>
+                <TimelinePreview
+                  key={playFrom}
+                  project={project}
+                  startSec={playFrom}
+                  onTime={setPlayhead}
+                  onEnded={(t) => {
+                    setPlaying(false);
+                    setPlayhead(t);
+                  }}
+                  onError={(m) => {
+                    setPlaying(false);
+                    notify('error', m);
+                  }}
+                />
+                <span className="absolute bottom-2 left-2 z-20 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                  근사 미리보기 · 손떨림 보정·선명·노이즈 제거·전환 모양은 내보내기에서만 반영됩니다
+                </span>
+              </>
+            ) : render?.status === 'done' && render.previewId ? (
               <div className="max-h-full w-full max-w-4xl overflow-auto p-2">
                 <MediaPlayer media={{ kind: 'preview', id: render.previewId }} itemId={null} />
                 <p className="mt-1 text-center text-xs text-[var(--c-muted)]">
@@ -775,6 +823,14 @@ export function VideoEditorPage(): ReactNode {
           {/* 타임라인 */}
           <div className="border-t border-[var(--c-border)] p-2">
             <div className="mb-1 flex items-center gap-2 text-xs">
+              <Button
+                variant={playing ? 'primary' : 'ghost'}
+                aria-label={playing ? '미리보기 정지' : '미리보기 재생'}
+                onClick={togglePlay}
+                disabled={clips.length === 0}
+              >
+                {playing ? '■ 정지 (Space)' : '▶ 재생 (Space)'}
+              </Button>
               <label className="flex items-center gap-1">
                 재생 헤드
                 <input
@@ -784,7 +840,10 @@ export function VideoEditorPage(): ReactNode {
                   max={Math.max(0.1, total)}
                   step={0.05}
                   value={Math.min(playhead, total)}
-                  onChange={(e) => setPlayhead(Number(e.target.value))}
+                  onChange={(e) => {
+                    setPlaying(false);
+                    setPlayhead(Number(e.target.value));
+                  }}
                   className="w-64"
                 />
                 <span className="w-16 tabular-nums">{playhead.toFixed(2)}초</span>

@@ -160,6 +160,14 @@ export const libraryApi = {
   editProbe: (path: string) => run('파일 확인', () => call('edit:source.probe', { path })),
   editPickMedia: (kind: 'video' | 'audio' | 'image') =>
     run('파일 선택', () => call('edit:pickMedia', { kind })),
+  /** 실시간 미리보기용 재생 주소. 실패하면 null */
+  editMediaUrl: async (path: string): Promise<string | null> => {
+    try {
+      return (await call('edit:mediaUrl', { path })).url;
+    } catch {
+      return null;
+    }
+  },
   editFrame: async (path: string, timeSec: number): Promise<string | null> => {
     try {
       return (await call('edit:frame', { path, timeSec })).url;

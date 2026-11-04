@@ -33,7 +33,7 @@ import {
 import type { ToolPaths } from '../JobRunner';
 import type { MediaProbeService } from '../MediaProbeService';
 import { ProgressEstimator } from '../ProgressEstimator';
-import type { MediaTokenRegistry } from '../library/MediaTokenRegistry';
+import { mimeOf, type MediaTokenRegistry } from '../library/MediaTokenRegistry';
 import type { ThumbnailService } from '../library/ThumbnailService';
 import {
   buildRenderPlan,
@@ -186,6 +186,23 @@ export class VideoEditService {
   }
 
   /** 원본 파일의 시점 프레임 (효과 미적용). 썸네일 캐시를 쓴다 */
+  /**
+   * 실시간 미리보기용 재생 주소. 영상·음성 파일만 토큰으로 연다 (파일은 읽기만 한다).
+   */
+  mediaUrl(filePath: string): { url: string } {
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(filePath);
+    } catch (err) {
+      throw new AppError('INPUT_MISSING', filePath, { cause: err });
+    }
+    if (!st.isFile()) throw new AppError('INPUT_UNREADABLE', filePath);
+    const mime = mimeOf(filePath);
+    if (!mime.startsWith('video/') && !mime.startsWith('audio/'))
+      throw new AppError('UNSUPPORTED_INPUT', '미리보기는 영상·음성 파일만 열 수 있습니다');
+    return { url: this.deps.tokens.issue(`edit:media:${filePath}`, filePath, mime) };
+  }
+
   async frame(filePath: string, timeSec: number): Promise<{ url: string }> {
     const st = fs.statSync(filePath);
     const file = await this.deps.thumbs.frame(

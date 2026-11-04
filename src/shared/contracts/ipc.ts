@@ -258,6 +258,8 @@ export interface InvokeContract {
   };
   /** 원본 파일의 특정 시점 프레임 (효과 미적용) */
   'edit:frame': { request: { path: string; timeSec: number }; response: { url: string } };
+  /** 실시간 미리보기용 영상·음성 재생 주소 */
+  'edit:mediaUrl': { request: { path: string }; response: { url: string } };
   /** 렌더 시작. 진행은 edit:render.progress 이벤트 */
   'edit:render': {
     request: { projectId: string; mode: EditRenderMode; target: ImageExportTarget | null };
@@ -383,6 +385,7 @@ export const CHANNEL_NAMES = {
     'edit:source.probe',
     'edit:pickMedia',
     'edit:frame',
+    'edit:mediaUrl',
     'edit:render',
     'edit:render.cancel',
     'edit:pickExportPath',

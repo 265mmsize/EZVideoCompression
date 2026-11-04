@@ -180,3 +180,35 @@ test('Ctrl+클릭으로 여러 클립을 고르고 한 번에 지운 뒤 되돌�
   await page.getByRole('button', { name: '실행 취소' }).click();
   await expect(items).toHaveCount(2);
 });
+
+test('재생하면 미리보기가 원본을 틀고 재생 헤드가 움직이며, 정지하면 프레임 보기로 돌아간다', async () => {
+  const slider = page.getByRole('slider', { name: '재생 헤드' });
+  await page.keyboard.press('Home');
+  await expect(slider).toHaveValue('0');
+  await page.getByRole('button', { name: '미리보기 재생' }).click();
+  const preview = page.getByTestId('timeline-preview');
+  await expect(preview).toBeVisible();
+  await expect(preview.locator('video[src^="vslim-media://file/"]').first()).toBeAttached({
+    timeout: 10_000,
+  });
+  // 실제로 재생되어 재생 헤드가 앞으로 가고, 1초 분할 지점을 넘어 두 번째 클립으로 이어진다
+  await expect
+    .poll(async () => Number(await slider.inputValue()), { timeout: 15_000 })
+    .toBeGreaterThan(1.6);
+  await page.getByRole('button', { name: '미리보기 정지' }).click();
+  await expect(preview).toHaveCount(0);
+  await expect(page.getByTestId('edit-frame')).toBeVisible({ timeout: 30_000 });
+});
+
+test('Space 는 초점이 있는 버튼을 누르지 않고 재생만 바꾼다', async () => {
+  const items = page.getByRole('list', { name: '타임라인' }).getByRole('listitem');
+  const before = await items.count();
+  await page.getByRole('button', { name: '클립 추가' }).focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByTestId('timeline-preview')).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(page.getByTestId('timeline-preview')).toHaveCount(0);
+  // 버튼이 눌렸다면 대화상자 스텁이 클립을 하나 더 넣었을 것이다
+  await page.waitForTimeout(500);
+  await expect(items).toHaveCount(before);
+});

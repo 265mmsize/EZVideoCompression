@@ -11,19 +11,13 @@
  *
  * 모든 숫자는 소수 셋째 자리로 고정해 테스트에서 문자열 비교가 가능하게 한다.
  */
+import { evenSize as even, type Canvas } from '../../../shared/editCanvas';
 import type {
-  CanvasPreset,
   EditClip,
   EditProject,
   EditTextOverlay,
   TransitionType,
 } from '../../../shared/types/domain';
-
-export interface Canvas {
-  width: number;
-  height: number;
-  fps: number;
-}
 
 export interface RenderPlanOptions {
   canvas: Canvas;
@@ -55,13 +49,7 @@ export interface RenderPlan {
   notes: string[];
 }
 
-const CANVAS_SIZES: Readonly<Record<Exclude<CanvasPreset, 'auto'>, [number, number]>> = {
-  '1080p': [1920, 1080],
-  '720p': [1280, 720],
-  '4k': [3840, 2160],
-  vertical1080: [1080, 1920],
-  square1080: [1080, 1080],
-};
+export { resolveCanvas, type Canvas } from '../../../shared/editCanvas';
 
 export const PROXY_MAX_WIDTH = 640;
 /** 전환 길이는 양쪽 클립 길이의 절반을 넘지 않는다 */
@@ -69,26 +57,6 @@ const TRANSITION_MAX_RATIO = 0.5;
 
 export function fix3(n: number): string {
   return (Math.round(n * 1000) / 1000).toFixed(3);
-}
-
-function even(n: number): number {
-  const r = Math.max(2, Math.round(n));
-  return r % 2 === 0 ? r : r + 1;
-}
-
-/** 캔버스 결정. auto 는 첫 클립의 (회전 반영) 원본 크기, fps auto 는 30 */
-export function resolveCanvas(project: EditProject): Canvas {
-  const fps = project.canvas.fps === 'auto' ? 30 : project.canvas.fps;
-  if (project.canvas.preset !== 'auto') {
-    const [w, h] = CANVAS_SIZES[project.canvas.preset];
-    return { width: w, height: h, fps };
-  }
-  const first = project.clips[0];
-  if (!first) return { width: 1280, height: 720, fps };
-  const swap = first.rotate === 90 || first.rotate === 270;
-  const w = swap ? first.sourceHeight : first.sourceWidth;
-  const h = swap ? first.sourceWidth : first.sourceHeight;
-  return { width: even(w), height: even(h), fps };
 }
 
 /** 미리보기용 캔버스: 가로 640 이하로 줄인다 */

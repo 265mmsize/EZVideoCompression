@@ -353,6 +353,7 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'edit:source.probe': z.object({ path: absolutePath }),
   'edit:pickMedia': z.object({ kind: z.enum(['video', 'audio', 'image']) }),
   'edit:frame': z.object({ path: absolutePath, timeSec: sec }),
+  'edit:mediaUrl': z.object({ path: absolutePath }),
   'edit:render': z.object({
     projectId: idSchema,
     mode: z.enum(['proxy', 'export']),

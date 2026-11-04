@@ -261,6 +261,7 @@ export function registerIpc(deps: IpcDeps): void {
       return paths ? { paths } : null;
     },
     'edit:frame': ({ path, timeSec }) => s.videoEdit.frame(path, timeSec),
+    'edit:mediaUrl': ({ path }) => s.videoEdit.mediaUrl(path),
     'edit:render': ({ projectId, mode, target }) => ({
       renderId: s.videoEdit.render(projectId, mode, target),
     }),
