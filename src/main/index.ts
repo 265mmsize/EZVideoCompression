@@ -407,8 +407,11 @@ function rendererFileUrl(): string {
 /** 세션 단위 정책: 권한 요청 거부, 외부 리소스 로드 차단(오프라인 원칙) */
 function installSecurityPolicy(): void {
   const ses = session.defaultSession;
-  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  ses.setPermissionCheckHandler(() => false);
+  // 전체 화면(미리보기 전체 화면)만 허용하고, 나머지 권한은 모두 거부한다
+  ses.setPermissionRequestHandler((_wc, permission, callback) =>
+    callback(permission === 'fullscreen'),
+  );
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'fullscreen');
   ses.webRequest.onBeforeRequest((details, callback) => {
     const local =
       details.url.startsWith('file://') ||

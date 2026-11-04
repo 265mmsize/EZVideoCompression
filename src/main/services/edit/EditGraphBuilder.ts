@@ -13,6 +13,7 @@
  */
 import { evenSize as even, type Canvas } from '../../../shared/editCanvas';
 import { TONEMAP_FILTERS } from './sourceColor';
+import { clipDuration, FREEZE_FRAME_SEC } from '../../../shared/clipTime';
 import { hardwareEncodeArgs } from '../HardwareEncoderService';
 import {
   hasZoomPan,
@@ -80,8 +81,7 @@ export function proxyCanvas(c: Canvas): Canvas {
 
 /** 클립의 결과 길이 (속도 적용 후) */
 export function clipDurationSec(c: EditClip): number {
-  const src = Math.max(0, c.outSec - c.inSec);
-  return src / c.speed;
+  return clipDuration(c);
 }
 
 /** 실제 쓰일 전환 길이 (양쪽 길이의 절반 이하로 제한). 전환 없음이면 0 */
@@ -236,6 +236,13 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
       );
       notes.push(`${c.fileName}: 손떨림 보정 (2-pass, vidstab)`);
     }
+    // 프레임 고정: 한 프레임만 남기고 계속 반복한 뒤 길이만큼 자른다
+    if (c.still)
+      v.push(
+        `trim=end=${fix3(FREEZE_FRAME_SEC)}`,
+        'setpts=PTS-STARTPTS',
+        'loop=loop=-1:size=1:start=0',
+      );
     v.push(`setpts=(PTS-STARTPTS)/${fix3(c.speed)}`, `trim=duration=${fix3(dur)}`);
     if (opts.tonemapClips?.has(i)) {
       v.push(...TONEMAP_FILTERS);
@@ -292,11 +299,16 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
         );
       v.push(`drawtext=${parts.join(':')}`);
     });
+    // 클립 페이드 (영상): 인은 시작, 아웃은 끝에서. 텍스트까지 함께 페이드한다.
+    const fi = c.fadeInSec ?? 0;
+    const fo = c.fadeOutSec ?? 0;
+    if (fi > 0) v.push(`fade=t=in:st=0:d=${fix3(fi)}`);
+    if (fo > 0) v.push(`fade=t=out:st=${fix3(Math.max(0, dur - fo))}:d=${fix3(fo)}`);
     chains.push(`[${String(i)}:v]${v.join(',')}[v${String(i)}]`);
 
-    // 음성
+    // 음성 (프레임 고정 클립은 소리가 없다)
     const volKeys = c.motion?.volume ?? [];
-    if (c.hasAudio && !c.mute && (c.volume > 0 || volKeys.length > 0)) {
+    if (!c.still && c.hasAudio && !c.mute && (c.volume > 0 || volKeys.length > 0)) {
       const a = [
         'asetpts=PTS-STARTPTS',
         ...atempoChain(c.speed),
@@ -307,6 +319,8 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
         ...(project.output.normalizeAudio
           ? ['loudnorm=I=-16:TP=-1.5:LRA=11', 'aresample=48000']
           : []),
+        ...(fi > 0 ? [`afade=t=in:st=0:d=${fix3(fi)}`] : []),
+        ...(fo > 0 ? [`afade=t=out:st=${fix3(Math.max(0, dur - fo))}:d=${fix3(fo)}`] : []),
         'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo',
         `apad=whole_dur=${fix3(dur)}`,
         `atrim=0:${fix3(dur)}`,

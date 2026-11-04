@@ -60,6 +60,10 @@ import { MusicRow, TrackRows, type TrackSel } from './TrackRows';
 import { sliceMotion } from '../../shared/keyframes';
 import { TrackClipPanel } from './TrackClipPanel';
 import { MotionPanel, motionTimes } from './MotionPanel';
+import { ClipThumbs } from './ClipThumbs';
+import { ContextMenu, type MenuEntry } from './ContextMenu';
+import { copyOf, freezeAt } from './clipEdits';
+import { clipLabel, maxFadeSec } from '../../shared/clipTime';
 import { notify } from '../stores/appStore';
 import { useAppStore } from '../hooks/useAppStore';
 
@@ -145,6 +149,11 @@ type DragState =
       moved: boolean;
     };
 
+/** 되돌리기 병합 판정용 현재 시각 (이벤트 처리에서만 쓴다) */
+function wallClockMs(): number {
+  return Date.now();
+}
+
 /** 눈금 간격: 확대 정도에 따라 1·5·10초 */
 function rulerTicks(total: number, pxPerSec: number): number[] {
   const step = pxPerSec >= 30 ? 1 : pxPerSec >= 12 ? 5 : 10;
@@ -203,6 +212,14 @@ export function VideoEditorPage(): ReactNode {
   // 실시간 미리보기 재생 (근사치). 재생을 시작한 위치를 기억해 그 위치부터 다시 그린다.
   const [playing, setPlaying] = useState(false);
   const [playFrom, setPlayFrom] = useState(0);
+  // 구간만 재생할 때의 끝 시각 (null 이면 끝까지)
+  const [playEnd, setPlayEnd] = useState<number | null>(null);
+  // 우클릭 메뉴와 복사한 클립, 썸네일·맞춤·전체 화면에 쓰는 요소
+  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
+  const clipboardRef = useRef<EditClip | null>(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
+  const trackBoxRef = useRef<HTMLDivElement>(null);
+  const previewBoxRef = useRef<HTMLDivElement>(null);
   // 고른 추가 트랙 클립 (메인 클립 선택과 함께 쓰지 않는다)
   const [selTrack, setSelTrack] = useState<TrackSel | null>(null);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
@@ -254,7 +271,7 @@ export function VideoEditorPage(): ReactNode {
   const commit = (next: EditProject | null, record: boolean, key: string | null = null): void => {
     const cur = projRef.current;
     if (record && cur && next) {
-      hist.current = recordChange(hist.current, cur, Date.now(), key);
+      hist.current = recordChange(hist.current, cur, wallClockMs(), key);
       setHistCount({ u: hist.current.past.length, r: hist.current.future.length });
     }
     if (next) dirty.current = true;
@@ -578,6 +595,98 @@ export function VideoEditorPage(): ReactNode {
 
   // -------------------------------------------------------------------------
 
+  // ----- 클립 편집: 복사·붙여넣기·복제, 프레임 고정, 구간 재생, 이동·맞춤, 전체 화면 -----
+  const selectedMain = (): EditClip | null => clips.find((c) => c.id === selectedClip) ?? null;
+  const copyClip = (id: string): void => {
+    const c = clips.find((x) => x.id === id);
+    if (!c) return;
+    clipboardRef.current = c;
+    setHasClipboard(true);
+    notify('info', `복사: ${clipLabel(c)}`);
+  };
+  /** 붙여넣기: 선택한 클립 뒤에 넣는다 (선택이 없으면 맨 뒤) */
+  const pasteClip = (): void => {
+    const src = clipboardRef.current;
+    if (!src) return;
+    const copy = copyOf(src, () => crypto.randomUUID());
+    update((p) => {
+      const i = p.clips.findIndex((c) => c.id === selectedClip);
+      const at = i < 0 ? p.clips.length : i + 1;
+      const next = [...p.clips];
+      next.splice(at, 0, copy);
+      return { ...p, clips: next };
+    });
+    setSelectedClip(copy.id);
+  };
+  /** 재생 헤드 위치에서 클립을 프레임 고정 (앞·고정·뒤 세 조각) */
+  const freezeSelected = (): void => {
+    const c = selectedMain();
+    if (!c) {
+      notify('error', '프레임 고정할 클립을 고르세요');
+      return;
+    }
+    const idx = clips.findIndex((x) => x.id === c.id);
+    const local = playhead - (starts[idx] ?? 0);
+    if (local <= 0 || local >= clipDur(c)) {
+      notify('error', '재생 헤드를 고를 클립 안에 두세요');
+      return;
+    }
+    const pieces = freezeAt(c, c.inSec + local * c.speed, () => crypto.randomUUID());
+    if (!pieces) {
+      notify('error', '재생 헤드가 클립 가장자리에 너무 가깝습니다');
+      return;
+    }
+    update((p) => ({ ...p, clips: p.clips.flatMap((x) => (x.id === c.id ? pieces : [x])) }));
+    setSelectedClip(pieces[1]?.id ?? null);
+  };
+  const jumpBy = (sec: number): void => {
+    setPlaying(false);
+    setPlayhead((t) => moveTime(t, total, sec));
+  };
+  /** 선택 구간만 미리 재생한다 (프로젝트는 바뀌지 않는다) */
+  const playRange = (): void => {
+    if (!range) return;
+    setPlayFrom(range.startSec);
+    setPlayEnd(range.endSec);
+    setPlaying(true);
+  };
+  /** 타임라인을 가로 폭에 맞춘다 */
+  const zoomFit = (): void => {
+    const w = trackBoxRef.current?.clientWidth ?? 0;
+    if (total <= 0 || w <= 0) return;
+    setPxPerSec(Math.min(200, Math.max(10, Math.floor((w - 24) / total))));
+  };
+  const fullscreenPreview = (): void => {
+    const el = previewBoxRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    el.requestFullscreen().catch(() => notify('error', '전체 화면으로 바꿀 수 없습니다'));
+  };
+  /** 우클릭 메뉴 항목 */
+  const clipMenuEntries = (id: string): MenuEntry[] => {
+    const c = clips.find((x) => x.id === id);
+    if (!c) return [];
+    return [
+      { label: '복제', hint: 'Ctrl+D', onSelect: () => duplicateClip(id) },
+      { label: '복사', hint: 'Ctrl+C', onSelect: () => copyClip(id) },
+      {
+        label: '붙여넣기',
+        hint: 'Ctrl+V',
+        disabled: !hasClipboard,
+        onSelect: () => pasteClip(),
+      },
+      { sep: true },
+      { label: '분할', hint: 'S · 재생 헤드', onSelect: () => splitAtPlayhead() },
+      { label: '프레임 고정', hint: 'F · 재생 헤드', onSelect: () => freezeSelected() },
+      { label: '이름·길이·페이드 편집', onSelect: () => setPanel('clip') },
+      { sep: true },
+      { label: '삭제', hint: 'Delete', danger: true, onSelect: () => removeClip(id) },
+    ];
+  };
+
   // ----- 추가 트랙 (모두 실행 취소 가능) -----
   const updateTrackClip = (
     trackId: string,
@@ -763,6 +872,7 @@ export function VideoEditorPage(): ReactNode {
     }
     if (clips.length === 0) return;
     setPlayFrom(playhead >= total - 0.05 ? 0 : playhead);
+    setPlayEnd(null);
     setPlaying(true);
   };
   const onPointerMove = (x: number): void => {
@@ -860,7 +970,22 @@ export function VideoEditorPage(): ReactNode {
     const onKey = (e: KeyboardEvent): void => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (!projRef.current || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!projRef.current || e.altKey) return;
+      if (e.ctrlKey || e.metaKey) {
+        // 복사·붙여넣기·복제 (실행 취소 Ctrl+Z 는 위의 별도 등록에서 처리한다)
+        const ck = e.key.toLowerCase();
+        if (ck === 'c') {
+          e.preventDefault();
+          if (selectedClip) copyClip(selectedClip);
+        } else if (ck === 'v') {
+          e.preventDefault();
+          pasteClip();
+        } else if (ck === 'd') {
+          e.preventDefault();
+          if (selectedClip) duplicateClip(selectedClip);
+        }
+        return;
+      }
       const k = e.key;
       if (k === ' ') {
         // 버튼에 초점이 있어도 버튼을 누르지 않고 재생만 바꾼다
@@ -887,6 +1012,9 @@ export function VideoEditorPage(): ReactNode {
       } else if (k === 's' || k === 'S') {
         e.preventDefault();
         splitAtPlayhead();
+      } else if (k === 'f' || k === 'F') {
+        e.preventDefault();
+        freezeSelected();
       } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
         e.preventDefault();
         const fps = projRef.current.canvas.fps;
@@ -953,6 +1081,9 @@ export function VideoEditorPage(): ReactNode {
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} entries={menu.entries} />
+      )}
       {/* 상단 바 */}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
         <Button
@@ -1018,13 +1149,24 @@ export function VideoEditorPage(): ReactNode {
       <div className="flex min-h-0 flex-1">
         {/* 미리보기 */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+          <div
+            ref={previewBoxRef}
+            className="relative flex min-h-0 flex-1 items-center justify-center bg-black"
+          >
+            <Button
+              className="absolute right-2 top-2 z-30"
+              onClick={fullscreenPreview}
+              aria-label="미리보기 전체 화면"
+            >
+              전체 화면
+            </Button>
             {playing && clips.length > 0 ? (
               <>
                 <TimelinePreview
                   key={playFrom}
                   project={project}
                   startSec={playFrom}
+                  endSec={playEnd}
                   onTime={setPlayhead}
                   onEnded={(t) => {
                     setPlaying(false);
@@ -1082,6 +1224,23 @@ export function VideoEditorPage(): ReactNode {
               >
                 {playing ? '■ 정지 (Space)' : '▶ 재생 (Space)'}
               </Button>
+              <Button
+                onClick={() => jumpBy(-5)}
+                disabled={clips.length === 0}
+                aria-label="5초 뒤로"
+              >
+                ◀ 5초
+              </Button>
+              <Button
+                onClick={() => jumpBy(5)}
+                disabled={clips.length === 0}
+                aria-label="5초 앞으로"
+              >
+                5초 ▶
+              </Button>
+              <Button onClick={playRange} disabled={!range} aria-label="선택 구간만 재생">
+                구간만 재생
+              </Button>
               <label className="flex items-center gap-1">
                 재생 헤드
                 <input
@@ -1099,6 +1258,9 @@ export function VideoEditorPage(): ReactNode {
                 />
                 <span className="w-16 tabular-nums">{playhead.toFixed(2)}초</span>
               </label>
+              <Button onClick={zoomFit} aria-label="화면에 맞추기">
+                화면에 맞추기
+              </Button>
               <label className="ml-auto flex items-center gap-1">
                 확대
                 <input
@@ -1160,6 +1322,7 @@ export function VideoEditorPage(): ReactNode {
               </span>
             </div>
             <div
+              ref={trackBoxRef}
               className="overflow-x-auto rounded border border-[var(--c-border)] bg-[var(--c-surface-2)]"
               role="group"
               aria-label="타임라인 편집 영역"
@@ -1234,6 +1397,17 @@ export function VideoEditorPage(): ReactNode {
                         onDragEnd={() => {
                           dragClip.current = null;
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setSelectedClip(c.id);
+                          setPicked(new Set());
+                          setSelTrack(null);
+                          setMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            entries: clipMenuEntries(c.id),
+                          });
+                        }}
                         onClick={(e) => {
                           if (e.ctrlKey || e.metaKey) {
                             setPicked((prev) => {
@@ -1304,8 +1478,12 @@ export function VideoEditorPage(): ReactNode {
                               style={{ left: t * pxPerSec }}
                             />
                           ))}
-                        <span className="truncate font-medium">{c.fileName}</span>
-                        <span className="truncate">
+                        <ClipThumbs clip={c} widthPx={Math.max(24, d * pxPerSec)} />
+                        <span className="relative truncate font-medium">
+                          {clipLabel(c)}
+                          {c.still ? ' · 고정' : ''}
+                        </span>
+                        <span className="relative truncate">
                           {formatDuration(d)}
                           {c.speed !== 1 ? ` ×${String(c.speed)}` : ''}
                           {c.stabilize ? ' · 보정' : ''}
@@ -1649,6 +1827,49 @@ function ClipPanel({
         </Button>
       </div>
 
+      <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">이름·길이·페이드</h4>
+      <label className="mt-1 flex items-center justify-between gap-2 text-xs">
+        표시 이름
+        <input
+          aria-label="표시 이름"
+          className="w-40 rounded border border-[var(--c-border)] bg-[var(--c-surface)] px-1 py-0.5"
+          placeholder={clip.fileName}
+          value={clip.label ?? ''}
+          onChange={(e) => onChange({ label: e.target.value })}
+        />
+      </label>
+      <Num
+        label={clip.still ? '고정 길이 (초)' : '길이 (초, 배속 반영)'}
+        value={Number(clipDur(clip).toFixed(2))}
+        min={0.1}
+        step={0.1}
+        onChange={(v) =>
+          onChange((c) =>
+            c.still
+              ? { ...c, stillSec: Math.max(0.1, v) }
+              : {
+                  ...c,
+                  outSec: Math.min(c.sourceDurationSec, c.inSec + Math.max(0.1, v) * c.speed),
+                },
+          )
+        }
+      />
+      <Range
+        label="페이드 인 (초)"
+        min={0}
+        max={Number(maxFadeSec(clipDur(clip)).toFixed(2))}
+        step={0.1}
+        value={clip.fadeInSec ?? 0}
+        onChange={(v) => onChange({ fadeInSec: v })}
+      />
+      <Range
+        label="페이드 아웃 (초)"
+        min={0}
+        max={Number(maxFadeSec(clipDur(clip)).toFixed(2))}
+        step={0.1}
+        value={clip.fadeOutSec ?? 0}
+        onChange={(v) => onChange({ fadeOutSec: v })}
+      />
       <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">속도·음성</h4>
       <Range
         label="속도 (배)"

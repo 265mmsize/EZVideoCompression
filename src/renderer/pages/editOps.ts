@@ -2,6 +2,7 @@
  * 영상 편집기의 순수 계산 (화면과 메인 렌더 계획이 같은 규칙을 쓴다).
  */
 import { sliceMotion } from '../../shared/keyframes';
+import { clipDuration } from '../../shared/clipTime';
 import type { EditClip } from '../../shared/types/domain';
 
 export const MIN_PIECE_SEC = 0.2;
@@ -11,7 +12,7 @@ const MAX_INTERVAL_PIECES = 50;
 
 /** 클립의 결과 길이 (속도 적용 후) */
 export function clipDur(c: EditClip): number {
-  return Math.max(0, c.outSec - c.inSec) / c.speed;
+  return clipDuration(c);
 }
 
 /** 다음 클립과 겹치는 전환 길이 (양쪽 길이의 절반 이하) */
@@ -39,6 +40,8 @@ export function layout(clips: EditClip[]): { starts: number[]; total: number } {
  * 마지막 조각은 원래 전환을 이어받는다. 조각이 너무 짧아지면 나누지 않고 원래 클립을 돌려준다.
  */
 export function splitAt(c: EditClip, cuts: number[], newId: () => string): EditClip[] {
+  // 프레임 고정 클립은 나눌 수 없다 (길이가 원본 구간이 아니다)
+  if (c.still) return [c];
   const points = [...cuts].filter((t) => t > c.inSec && t < c.outSec).sort((a, b) => a - b);
   const bounds = [c.inSec, ...points, c.outSec];
   for (let i = 0; i + 1 < bounds.length; i++) {
@@ -54,6 +57,9 @@ export function splitAt(c: EditClip, cuts: number[], newId: () => string): EditC
       inSec: round3(bounds[i] ?? c.inSec),
       outSec: round3(bounds[i + 1] ?? c.outSec),
       texts: i === 0 ? c.texts : [],
+      // 페이드는 바깥쪽 조각에만 남는다 (인은 첫 조각, 아웃은 마지막 조각)
+      fadeInSec: i === 0 ? c.fadeInSec : 0,
+      fadeOutSec: last ? c.fadeOutSec : 0,
       transition: last ? c.transition : { type: 'none', durationSec: c.transition.durationSec },
       motion: sliceMotion(
         c.motion,

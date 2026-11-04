@@ -62,12 +62,15 @@ interface ViewLayer {
 export function TimelinePreview({
   project,
   startSec,
+  endSec = null,
   onTime,
   onEnded,
   onError,
 }: {
   project: EditProject;
   startSec: number;
+  /** 이 시각에 멈춘다 (구간만 재생). null 이면 프로젝트 끝까지 */
+  endSec?: number | null;
   onTime: (t: number) => void;
   onEnded: (t: number) => void;
   onError: (message: string) => void;
@@ -80,7 +83,7 @@ export function TimelinePreview({
     { clipId: null, url: null, pendingSeek: null },
   ]);
   const urls = useRef(new Map<string, string>());
-  const latest = useRef({ project, onTime, onEnded, onError });
+  const latest = useRef({ project, endSec, onTime, onEnded, onError });
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<ViewLayer[]>([]);
   const [watermarkUrl, setWatermarkUrl] = useState<string | null>(null);
@@ -99,7 +102,7 @@ export function TimelinePreview({
 
   // 최신 프로젝트와 콜백을 재생 루프에 넘긴다 (재생 중 편집도 반영된다)
   useEffect(() => {
-    latest.current = { project, onTime, onEnded, onError };
+    latest.current = { project, endSec, onTime, onEnded, onError };
   });
 
   const canvas = useMemo(() => resolveCanvas(project), [project]);
@@ -232,11 +235,20 @@ export function TimelinePreview({
     let lastWindowKey = '';
 
     const tick = (now: number): void => {
-      const { project: p, onTime, onEnded } = latest.current;
+      const { project: p, endSec: stopSec, onTime, onEnded } = latest.current;
       const clips = p.clips;
       const { total } = layout(clips);
       const dt = Math.min(0.25, (now - last) / 1000);
       last = now;
+
+      // 구간만 재생: 끝 시각에 멈춘다
+      const stopAt = stopSec !== null ? Math.min(stopSec, total) : null;
+      if (stopAt !== null && clock >= stopAt) {
+        stopAll();
+        onTime(stopAt);
+        onEnded(stopAt);
+        return;
+      }
 
       const layers = layersAt(clips, clock);
       if (layers.length === 0) {
@@ -286,6 +298,14 @@ export function TimelinePreview({
         nextView.push({ slot: si, clipId: c.id, opacity: l.opacity, localSec: l.localSec, order });
         if (st.pendingSeek !== null || el.readyState < HAVE_CURRENT_DATA || el.seeking) {
           waiting = true;
+          continue;
+        }
+        // 프레임 고정: 원본의 한 프레임을 그대로 보여 주고 소리는 없다
+        if (c.still) {
+          el.pause();
+          if (Math.abs(el.currentTime - c.inSec) > 0.02) el.currentTime = c.inSec;
+          el.muted = true;
+          el.volume = 0;
           continue;
         }
         el.playbackRate = c.speed;

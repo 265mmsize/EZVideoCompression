@@ -162,6 +162,11 @@ const editClipSchema = z.object({
     .optional(),
   hdr: z.boolean().optional(),
   bitDepth: z.number().int().min(1).max(32).nullable().optional(),
+  label: z.string().max(120).optional(),
+  fadeInSec: z.number().min(0).max(600).optional(),
+  fadeOutSec: z.number().min(0).max(600).optional(),
+  still: z.boolean().optional(),
+  stillSec: z.number().min(0.1).max(3600).optional(),
 });
 export const kcpFileSchema = z.object({
   format: z.literal('kcp'),

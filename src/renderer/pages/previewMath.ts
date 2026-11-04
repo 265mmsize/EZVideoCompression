@@ -16,6 +16,7 @@ import type {
 import { animValue, hasZoomPan, motionValue } from '../../shared/keyframes';
 import type { EditTrackClip } from '../../shared/types/domain';
 import { clipDur, layout, transitionSec } from './editOps';
+import { fadeFactor } from '../../shared/clipTime';
 
 /** 렌더의 텍스트·워터마크 여백 (캔버스 픽셀) */
 const MARGIN_PX = 24;
@@ -59,6 +60,8 @@ export function layersAt(clips: EditClip[], t: number): PreviewLayer[] {
       const tr = transitionSec(c, next);
       if (tr > 0 && t >= ns) opacity = Math.min(opacity, Math.max(0, 1 - (2 * (t - ns)) / tr));
     }
+    // 클립 페이드 (영상과 소리 함께): 전환 배율에 곱한다
+    opacity *= fadeFactor(c, local, d);
     out.push({ index: i, localSec: local, sourceSec: c.inSec + local * c.speed, opacity });
   });
   return out;

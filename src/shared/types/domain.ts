@@ -812,6 +812,14 @@ export interface EditClip {
   /** 원본이 HDR 인지, 비트 깊이 (클립을 넣을 때 기록. 내보내기 때 다시 확인한다) */
   hdr?: boolean;
   bitDepth?: number | null;
+  /** 타임라인에 보이는 이름 (없으면 파일 이름) */
+  label?: string;
+  /** 시작·끝 페이드 (초, 영상과 소리 함께). 없으면 0 */
+  fadeInSec?: number;
+  fadeOutSec?: number;
+  /** 프레임 고정: 원본의 한 프레임을 stillSec 동안 멈춰 보여 준다 (소리 없음) */
+  still?: boolean;
+  stillSec?: number;
 }
 
 /** 메인 클립 키프레임 속성: 확대(1 이상), 화면 초점(0~1, 0.5 = 가운데), 음량 */
