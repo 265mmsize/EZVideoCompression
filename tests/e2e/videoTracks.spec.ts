@@ -123,6 +123,56 @@ test('트랙 클립을 끌어 옮기고 실행 취소로 되돌린다', async ()
   await expect(start).toHaveValue('0');
 });
 
+test('메인 클립에 확대 키프레임 두 개를 넣고 하나를 되돌린다', async () => {
+  const main = page.getByRole('list', { name: '타임라인' }).getByRole('listitem').first();
+  await main.click();
+  await page.keyboard.press('Home');
+  await page.getByRole('button', { name: '확대 키프레임 넣기' }).click();
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.getByRole('slider', { name: '확대', exact: true }).fill('2');
+  await expect(page.getByText('확대 2.00 · 키프레임 2개')).toBeVisible();
+  await expect(main.getByTestId('motion-mark')).toHaveCount(2);
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect(page.getByText(/확대 1\.00 · 키프레임 1개/)).toBeVisible();
+  await page.getByRole('button', { name: '다시 실행' }).click();
+  await expect(main.getByTestId('motion-mark')).toHaveCount(2);
+});
+
+test('트랙 클립을 90도 돌리고 좌우 반전한 뒤 되돌린다', async () => {
+  const row = page.getByRole('list', { name: '트랙: 영상 1' });
+  await row.getByRole('listitem').first().click();
+  await page.getByRole('button', { name: '90° 회전 (0°)' }).click();
+  await expect(page.getByRole('button', { name: '90° 회전 (90°)' })).toBeVisible();
+  await page.getByRole('button', { name: '좌우 반전' }).click();
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect(page.getByRole('button', { name: '90° 회전 (0°)' })).toBeVisible();
+  // 이미지에는 배속이 없다
+  await expect(page.getByRole('combobox', { name: '트랙 클립 배속' })).toHaveCount(0);
+});
+
+test('트랙 클립을 다른 영상 트랙으로 끌어 옮기고 되돌린다', async () => {
+  await page.getByRole('button', { name: '+ 영상 트랙' }).click();
+  const row1 = page.getByRole('list', { name: '트랙: 영상 1' });
+  const row2 = page.getByRole('list', { name: '트랙: 영상 2' });
+  await expect(row2).toBeVisible();
+  const item = row1.getByRole('listitem').first();
+  const b = await item.boundingBox();
+  const r2 = await row2.boundingBox();
+  if (!b || !r2) throw new Error('트랙 행이나 클립을 찾지 못했습니다');
+  const x = b.x + Math.min(40, b.width / 2);
+  await page.mouse.move(x, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x + 12, r2.y + r2.height * 0.7, { steps: 10 });
+  await page.mouse.up();
+  await expect(row2.getByRole('listitem')).toHaveCount(1);
+  await expect(row1.getByRole('listitem')).toHaveCount(0);
+  // 옮기기와 트랙 바꾸기는 실행 취소 한 번에 되돌아간다
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect(row1.getByRole('listitem')).toHaveCount(1);
+  await expect(row2.getByRole('listitem')).toHaveCount(0);
+});
+
 test('트랙이 있어도 미리보기가 재생되고 이미지 오버레이가 화면에 나온다', async () => {
   const slider = page.getByRole('slider', { name: '재생 헤드' });
   await page.keyboard.press('Home');
@@ -132,6 +182,13 @@ test('트랙이 있어도 미리보기가 재생되고 이미지 오버레이가
   await expect(preview.locator('img[data-testid="track-media"]')).toHaveCSS('display', 'block', {
     timeout: 15_000,
   });
+  // 미리보기 배치가 렌더 공식과 같다: 가운데(0.5, 0.5), 너비는 캔버스의 0.25
+  const pv = await preview.boundingBox();
+  const im = await preview.locator('img[data-testid="track-media"]').boundingBox();
+  if (!pv || !im) throw new Error('미리보기 상자를 찾지 못했습니다');
+  expect(Math.abs((im.x + im.width / 2 - pv.x) / pv.width - 0.5)).toBeLessThan(0.01);
+  expect(Math.abs((im.y + im.height / 2 - pv.y) / pv.height - 0.5)).toBeLessThan(0.01);
+  expect(Math.abs(im.width / pv.width - 0.25)).toBeLessThan(0.01);
   await expect
     .poll(async () => Number(await slider.inputValue()), { timeout: 15_000 })
     .toBeGreaterThan(0.8);

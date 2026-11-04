@@ -1,6 +1,7 @@
 /**
  * 영상 편집기의 순수 계산 (화면과 메인 렌더 계획이 같은 규칙을 쓴다).
  */
+import { sliceMotion } from '../../shared/keyframes';
 import type { EditClip } from '../../shared/types/domain';
 
 export const MIN_PIECE_SEC = 0.2;
@@ -54,6 +55,11 @@ export function splitAt(c: EditClip, cuts: number[], newId: () => string): EditC
       outSec: round3(bounds[i + 1] ?? c.outSec),
       texts: i === 0 ? c.texts : [],
       transition: last ? c.transition : { type: 'none', durationSec: c.transition.durationSec },
+      motion: sliceMotion(
+        c.motion,
+        ((bounds[i] ?? c.inSec) - c.inSec) / c.speed,
+        ((bounds[i + 1] ?? c.outSec) - c.inSec) / c.speed,
+      ),
     });
   }
   return out;

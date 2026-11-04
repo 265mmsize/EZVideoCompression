@@ -206,10 +206,19 @@ describe('추가 트랙 편집', () => {
     const out = cutOutTracks(track([tclip()]), { startSec: 4, endSec: 5 }, newId)[0]?.clips ?? [];
     expect(out).toHaveLength(2);
     expect(out[0]).toMatchObject({ id: 't1', startSec: 2, inSec: 10, outSec: 12 });
-    expect(out[0]?.anim.x).toEqual([{ t: 1, v: 0.1 }]);
+    // 조각 양 끝에 보간 값을 넣어 움직임을 그대로 잇는다 (원래 1초 0.1 → 5초 0.9 직선)
+    expect(out[0]?.anim.x).toEqual([
+      { t: 0, v: 0.1 },
+      { t: 1, v: 0.1 },
+      { t: 2, v: 0.30000000000000004 },
+    ]);
     expect(out[1]).toMatchObject({ startSec: 4, inSec: 13, outSec: 16 });
-    // 원래 5초 키프레임은 뒤 조각 안에서 2초
-    expect(out[1]?.anim.x).toEqual([{ t: 2, v: 0.9 }]);
+    // 원래 3초(0.5)가 뒤 조각의 0초, 원래 5초 키프레임은 2초
+    expect(out[1]?.anim.x).toEqual([
+      { t: 0, v: 0.5 },
+      { t: 2, v: 0.9 },
+      { t: 3, v: 0.9 },
+    ]);
   });
 
   it('구간만 남기면 구간 밖 트랙 클립은 사라지고 남은 것은 0초 기준으로 옮겨진다', () => {
@@ -225,7 +234,11 @@ describe('추가 트랙 편집', () => {
   it('시작을 줄이면 위치도 같이 움직이고 키프레임은 당겨진다, 끝은 원본 안에서만', () => {
     const t = trimTrackClip(tclip(), 'in', 2);
     expect(t).toMatchObject({ startSec: 4, inSec: 12, outSec: 16 });
-    expect(t.anim.x).toEqual([{ t: 3, v: 0.9 }]);
+    // 원래 2초의 보간 값(0.3)이 새 시작이 되고, 5초 키프레임은 3초로 당겨진다
+    expect(t.anim.x).toEqual([
+      { t: 0, v: 0.30000000000000004 },
+      { t: 3, v: 0.9 },
+    ]);
     expect(trimTrackClip(tclip(), 'in', -50)).toMatchObject({ startSec: 0, inSec: 8 });
     expect(trimTrackClip(tclip(), 'out', 500).outSec).toBe(100);
     expect(trimTrackClip(tclip(), 'out', -50).outSec).toBeCloseTo(10.2, 6);

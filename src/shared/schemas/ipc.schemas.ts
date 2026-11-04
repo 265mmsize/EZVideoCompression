@@ -120,6 +120,17 @@ const editTextSchema = z.object({
   startSec: sec,
   endSec: sec.nullable(),
 });
+const keyframeSchema = z.object({
+  t: z.number().min(0).max(86_400),
+  v: z.number().min(-10).max(10),
+});
+const keyframeList = z.array(keyframeSchema).max(100);
+const lookFilters = z.object({
+  brightness: z.number().min(-0.5).max(0.5),
+  contrast: z.number().min(0.5).max(2),
+  saturation: z.number().min(0).max(3),
+});
+
 const editClipSchema = z.object({
   id: z.string().min(1).max(64),
   path: absolutePath,
@@ -146,6 +157,9 @@ const editClipSchema = z.object({
   stabilize: z.boolean(),
   transition: z.object({ type: z.enum(TRANSITIONS), durationSec: z.number().min(0.1).max(5) }),
   texts: z.array(editTextSchema).max(20),
+  motion: z
+    .object({ zoom: keyframeList, panX: keyframeList, panY: keyframeList, volume: keyframeList })
+    .optional(),
 });
 export const kcpFileSchema = z.object({
   format: z.literal('kcp'),
@@ -153,11 +167,6 @@ export const kcpFileSchema = z.object({
   project: z.lazy(() => editProjectSchema),
 });
 
-const keyframeSchema = z.object({
-  t: z.number().min(0).max(86_400),
-  v: z.number().min(-10).max(10),
-});
-const keyframeList = z.array(keyframeSchema).max(100);
 const editTrackClipSchema = z
   .object({
     id: idSchema,
@@ -184,6 +193,11 @@ const editTrackClipSchema = z
       opacity: keyframeList,
       volume: keyframeList,
     }),
+    speed: z.number().min(0.25).max(4).optional(),
+    rotate: rotationSchema.optional(),
+    flipH: z.boolean().optional(),
+    flipV: z.boolean().optional(),
+    filters: lookFilters.optional(),
   })
   .refine((c) => c.outSec > c.inSec, { message: '끝 시점이 시작보다 커야 합니다' });
 const editTrackSchema = z.object({

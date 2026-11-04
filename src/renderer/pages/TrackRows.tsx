@@ -46,6 +46,7 @@ export function TrackRows(props: {
           key={track.id}
           role="list"
           aria-label={`트랙: ${track.name}`}
+          data-track-id={track.id}
           className={`relative border-t border-[var(--c-border)] ${track.kind === 'audio' ? 'h-12' : 'h-14'} ${track.enabled ? '' : 'opacity-50'}`}
         >
           {/* 가로로 스크롤해도 왼쪽에 남는 트랙 머리 */}

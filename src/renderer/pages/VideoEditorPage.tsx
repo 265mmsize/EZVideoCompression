@@ -37,6 +37,7 @@ import {
   boundaryTimes,
   cutOut,
   cutOutTracks,
+  moveClipToTrack,
   keepOnly,
   keepOnlyTracks,
   moveTrackClip,
@@ -56,7 +57,9 @@ import { MediaPlayer } from '../library/MediaPlayer';
 import { TimelinePreview } from './TimelinePreview';
 import { Waveform } from './Waveform';
 import { MusicRow, TrackRows, type TrackSel } from './TrackRows';
+import { sliceMotion } from '../../shared/keyframes';
 import { TrackClipPanel } from './TrackClipPanel';
+import { MotionPanel, motionTimes } from './MotionPanel';
 import { notify } from '../stores/appStore';
 
 const AUTOSAVE_MS = 600;
@@ -413,8 +416,20 @@ export function VideoEditorPage(): ReactNode {
       notify('error', '분할 지점이 클립 끝에 너무 가깝습니다');
       return;
     }
-    const left: EditClip = { ...c, outSec: cut, transition: { type: 'none', durationSec: 1 } };
-    const right: EditClip = { ...c, id: crypto.randomUUID(), inSec: cut, texts: [] };
+    const splitT = (cut - c.inSec) / c.speed;
+    const left: EditClip = {
+      ...c,
+      outSec: cut,
+      transition: { type: 'none', durationSec: 1 },
+      motion: sliceMotion(c.motion, 0, splitT),
+    };
+    const right: EditClip = {
+      ...c,
+      id: crypto.randomUUID(),
+      inSec: cut,
+      texts: [],
+      motion: sliceMotion(c.motion, splitT, clipDur(c)),
+    };
     update((p) => ({
       ...p,
       clips: p.clips.flatMap((x) => (x.id === c.id ? [left, right] : [x])),
@@ -761,9 +776,26 @@ export function VideoEditorPage(): ReactNode {
     if (d.kind === 'scrub') setPlayhead(t);
     else setRangeSel({ a: d.anchorSec, b: t });
   };
-  const onPointerUp = (): void => {
+  const onPointerUp = (x: number, y: number): void => {
     const d = dragRef.current;
     dragRef.current = null;
+    // 트랙 클립을 같은 종류의 다른 트랙 위에 놓으면 그 트랙으로 옮긴다 (이동과 같은 실행 취소 단계)
+    if (d && d.kind === 'tmove' && d.moved && Number.isFinite(x) && Number.isFinite(y)) {
+      const row = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-track-id]');
+      const target = row?.dataset['trackId'];
+      if (target && target !== d.trackId) {
+        const id = d.id;
+        const from = d.trackId;
+        update(
+          (p) => ({ ...p, tracks: moveClipToTrack(p.tracks, from, target, id) }),
+          `tmove:${id}`,
+        );
+        const moved = projRef.current?.tracks
+          .find((t) => t.id === target)
+          ?.clips.some((c) => c.id === id);
+        if (moved) setSelTrack({ trackId: target, clipId: id });
+      }
+    }
     // 눈금을 움직이지 않고 떼면 구간을 지우고 재생 헤드만 옮긴다
     if (d && d.kind === 'range' && !d.moved) {
       setRangeSel(null);
@@ -772,13 +804,16 @@ export function VideoEditorPage(): ReactNode {
   };
 
   // 끌기 중의 이동과 놓기는 창 전체에서 받는다. 최신 핸들러는 렌더 후에 갱신한다.
-  const dragHandlers = useRef({ move: (_x: number): void => {}, up: (): void => {} });
+  const dragHandlers = useRef({
+    move: (_x: number): void => {},
+    up: (_x: number, _y: number): void => {},
+  });
   useEffect(() => {
     dragHandlers.current = { move: onPointerMove, up: onPointerUp };
   });
   useEffect(() => {
     const move = (e: PointerEvent): void => dragHandlers.current.move(e.clientX);
-    const up = (): void => dragHandlers.current.up();
+    const up = (e: PointerEvent): void => dragHandlers.current.up(e.clientX, e.clientY);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
@@ -1229,6 +1264,16 @@ export function VideoEditorPage(): ReactNode {
                             className="bottom-0"
                           />
                         )}
+                        {active &&
+                          motionTimes(c).map((t) => (
+                            <span
+                              key={t}
+                              aria-hidden
+                              data-testid="motion-mark"
+                              className="absolute top-0 h-2 w-2 -translate-x-1/2 rotate-45 bg-amber-500"
+                              style={{ left: t * pxPerSec }}
+                            />
+                          ))}
                         <span className="truncate font-medium">{c.fileName}</span>
                         <span className="truncate">
                           {formatDuration(d)}
@@ -1343,18 +1388,43 @@ export function VideoEditorPage(): ReactNode {
                 }}
               />
             ) : current ? (
-              <ClipPanel
-                clip={current}
-                index={clips.findIndex((c) => c.id === current.id)}
-                count={clips.length}
-                playheadSource={at && clips[at.index]?.id === current.id ? at.sourceSec : null}
-                onChange={(patch) => updateClip(current.id, patch)}
-                onMove={(d) => moveClip(current.id, d)}
-                onRemove={() => removeClip(current.id)}
-                onDuplicate={() => duplicateClip(current.id)}
-                onSplitEqual={(n) => splitEqual(current.id, n)}
-                onSplitInterval={(sec) => splitInterval(current.id, sec)}
-              />
+              <>
+                <ClipPanel
+                  clip={current}
+                  index={clips.findIndex((c) => c.id === current.id)}
+                  count={clips.length}
+                  playheadSource={at && clips[at.index]?.id === current.id ? at.sourceSec : null}
+                  onChange={(patch) => updateClip(current.id, patch)}
+                  onMove={(d) => moveClip(current.id, d)}
+                  onRemove={() => removeClip(current.id)}
+                  onDuplicate={() => duplicateClip(current.id)}
+                  onSplitEqual={(n) => splitEqual(current.id, n)}
+                  onSplitInterval={(sec) => splitInterval(current.id, sec)}
+                />
+                <MotionPanel
+                  key={`motion-${current.id}`}
+                  clip={current}
+                  localSec={
+                    at && clips[at.index]?.id === current.id
+                      ? (at.sourceSec - current.inSec) / current.speed
+                      : null
+                  }
+                  onChange={(fn, key) =>
+                    update(
+                      (p) => ({
+                        ...p,
+                        clips: p.clips.map((c) => (c.id === current.id ? fn(c) : c)),
+                      }),
+                      key,
+                    )
+                  }
+                  onSeek={(local) => {
+                    const idx = clips.findIndex((c) => c.id === current.id);
+                    setPlaying(false);
+                    setPlayhead((starts[idx] ?? 0) + local);
+                  }}
+                />
+              </>
             ) : (
               <p className="text-xs text-[var(--c-muted)]">타임라인에서 클립을 선택하세요.</p>
             ))}

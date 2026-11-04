@@ -12,7 +12,13 @@
  * 모든 숫자는 소수 셋째 자리로 고정해 테스트에서 문자열 비교가 가능하게 한다.
  */
 import { evenSize as even, type Canvas } from '../../../shared/editCanvas';
-import { keyframeExpr, trackClipDur } from '../../../shared/keyframes';
+import {
+  hasZoomPan,
+  keyframeExpr,
+  MOTION_DEFAULTS,
+  trackClipDur,
+  trackSpeed,
+} from '../../../shared/keyframes';
 import type {
   EditClip,
   EditProject,
@@ -232,6 +238,20 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
     if (c.flipH) v.push('hflip');
     if (c.flipV) v.push('vflip');
     v.push(...fitFilters(canvas));
+    // 확대·이동(켄번스): 프레임마다 키운 뒤 캔버스 크기로 잘라 낸다. 텍스트는 이 뒤에 그려 확대되지 않는다.
+    if (hasZoomPan(c) && c.motion) {
+      const W = String(canvas.width);
+      const H = String(canvas.height);
+      const z = keyframeExpr(c.motion.zoom, MOTION_DEFAULTS.zoom, 't');
+      const px = keyframeExpr(c.motion.panX, MOTION_DEFAULTS.panX, 't');
+      const py = keyframeExpr(c.motion.panY, MOTION_DEFAULTS.panY, 't');
+      v.push(
+        `scale=w='trunc(${W}*max(1,${z})/2)*2':h='trunc(${H}*max(1,${z})/2)*2':eval=frame:flags=bicubic`,
+        `crop=${W}:${H}:x='(in_w-${W})*clip(${px},0,1)':y='(in_h-${H})*clip(${py},0,1)'`,
+        'setsar=1',
+      );
+      notes.push(`${c.fileName}: 확대·이동 키프레임`);
+    }
     const f = c.filters;
     if (f.brightness !== 0 || f.contrast !== 1 || f.saturation !== 1) {
       v.push(
@@ -266,11 +286,14 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
     chains.push(`[${String(i)}:v]${v.join(',')}[v${String(i)}]`);
 
     // 음성
-    if (c.hasAudio && !c.mute && c.volume > 0) {
+    const volKeys = c.motion?.volume ?? [];
+    if (c.hasAudio && !c.mute && (c.volume > 0 || volKeys.length > 0)) {
       const a = [
         'asetpts=PTS-STARTPTS',
         ...atempoChain(c.speed),
-        `volume=${fix3(c.volume)}`,
+        volKeys.length > 0
+          ? `volume='${keyframeExpr(volKeys, c.volume, 't')}':eval=frame`
+          : `volume=${fix3(c.volume)}`,
         'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo',
         `apad=whole_dur=${fix3(dur)}`,
         `atrim=0:${fix3(dur)}`,
@@ -345,6 +368,7 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
       const dur = Math.min(trackClipDur(tc), total - start);
       if (start >= total || dur <= 0.01) continue;
       const ii = inputs.length;
+      const speed = trackSpeed(tc);
       if (tc.kind === 'image') {
         inputs.push([
           '-loop',
@@ -357,14 +381,31 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
           tc.path,
         ]);
       } else {
-        inputs.push(['-ss', fix3(tc.inSec), '-t', fix3(dur), '-i', tc.path]);
+        inputs.push(['-ss', fix3(tc.inSec), '-t', fix3(dur * speed), '-i', tc.path]);
       }
       const local = `(t-${fix3(start)})`;
       if (track.kind === 'video' && tc.kind !== 'audio') {
         const lbl = `ov${String(ovIndex)}`;
         const out = `vt${String(ovIndex)}`;
         ovIndex++;
-        const f: string[] = [`setpts=PTS-STARTPTS+${fix3(start)}/TB`, 'format=rgba'];
+        const f: string[] = [
+          speed === 1
+            ? `setpts=PTS-STARTPTS+${fix3(start)}/TB`
+            : `setpts=(PTS-STARTPTS)/${fix3(speed)}+${fix3(start)}/TB`,
+        ];
+        // 회전 → 반전 → 밝기·대비·채도 (메인 클립과 같은 순서), 그다음 투명도·크기
+        if (tc.rotate === 90) f.push('transpose=1');
+        else if (tc.rotate === 270) f.push('transpose=2');
+        else if (tc.rotate === 180) f.push('transpose=1', 'transpose=1');
+        if (tc.flipH) f.push('hflip');
+        if (tc.flipV) f.push('vflip');
+        const look = tc.filters;
+        if (look && (look.brightness !== 0 || look.contrast !== 1 || look.saturation !== 1)) {
+          f.push(
+            `eq=brightness=${fix3(look.brightness)}:contrast=${fix3(look.contrast)}:saturation=${fix3(look.saturation)}`,
+          );
+        }
+        f.push('format=rgba');
         if (tc.anim.opacity.length > 0) {
           const op = keyframeExpr(tc.anim.opacity, tc.opacity, `(T-${fix3(start)})`);
           f.push(`geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*clip(${op},0,1)'`);
@@ -396,7 +437,7 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
             : `volume=${fix3(tc.volume)}`;
         const ms = String(Math.round(start * 1000));
         chains.push(
-          `[${String(ii)}:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,${vol},adelay=${ms}:all=1[${al}]`,
+          `[${String(ii)}:a]${['asetpts=PTS-STARTPTS', ...atempoChain(speed), 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo', vol, `adelay=${ms}:all=1`].join(',')}[${al}]`,
         );
         trackAudio.push(al);
         if (track.kind === 'audio')

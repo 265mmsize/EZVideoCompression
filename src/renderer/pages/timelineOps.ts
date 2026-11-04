@@ -2,7 +2,7 @@
  * 타임라인 편집의 순수 계산: 구간 잘라내기(잔물결), 구간만 남기기, 클립 가장자리 트림, 스냅.
  * 화면과 테스트가 같은 규칙을 쓴다. 모든 결과는 새 배열·새 객체를 돌려주고 입력은 바꾸지 않는다.
  */
-import { shiftKeyframes, trackClipDur } from '../../shared/keyframes';
+import { sliceKeyframes, sliceMotion, trackClipDur, trackSpeed } from '../../shared/keyframes';
 import type {
   AnimProp,
   EditAnim,
@@ -56,15 +56,18 @@ export function cutOut(clips: EditClip[], range: TimeRange, newId: () => string)
         ...c,
         outSec: c.inSec + (a - s) * c.speed,
         transition: { ...NO_TRANSITION },
+        motion: sliceMotion(c.motion, 0, a - s),
       });
     }
     if (hasTail) {
-      const tailInSec = c.inSec + (Math.max(b, s) - s) * c.speed;
+      const skip = Math.max(b, s) - s;
+      const tailInSec = c.inSec + skip * c.speed;
       const tail: EditClip = {
         ...c,
         id: hasHead ? newId() : c.id,
         inSec: tailInSec,
         texts: hasHead ? [] : c.texts,
+        motion: sliceMotion(c.motion, skip, e - s),
       };
       pieces.push(tail);
     }
@@ -92,7 +95,9 @@ export function trimEdge(c: EditClip, edge: TrimEdge, deltaTimelineSec: number):
   const dSrc = deltaTimelineSec * c.speed;
   if (edge === 'in') {
     const max = c.outSec - MIN_PIECE_SEC * c.speed;
-    return { ...c, inSec: clamp(c.inSec + dSrc, 0, Math.max(0, max)) };
+    const inSec = clamp(c.inSec + dSrc, 0, Math.max(0, max));
+    const moved = (inSec - c.inSec) / c.speed;
+    return { ...c, inSec, motion: sliceMotion(c.motion, moved, Infinity) };
   }
   const min = c.inSec + MIN_PIECE_SEC * c.speed;
   return { ...c, outSec: clamp(c.outSec + dSrc, min, c.sourceDurationSec) };
@@ -160,24 +165,24 @@ export function cutOutTracks(
       const out: EditTrackClip[] = [];
       const hasHead = s < a - EPS;
       const hasTail = e > b + EPS;
+      const sp = trackSpeed(c);
       if (hasHead) {
         const keep = a - s;
         out.push({
           ...c,
-          outSec: c.inSec + keep,
-          anim: mapAnim(c.anim, (k) => shiftKeyframes(k, 0, keep)),
+          outSec: c.inSec + keep * sp,
+          anim: mapAnim(c.anim, (k) => sliceKeyframes(k, 0, keep)),
         });
       }
       if (hasTail) {
         const skip = Math.max(b, s) - s;
-        const tailDur = e - Math.max(b, s);
         out.push({
           ...c,
           id: hasHead ? newId() : c.id,
           // 구간이 잘린 뒤에는 뒤 조각이 구간 시작 자리에서 이어진다
           startSec: Math.max(0, a),
-          inSec: c.inSec + skip,
-          anim: mapAnim(c.anim, (k) => shiftKeyframes(k, -skip, tailDur)),
+          inSec: c.inSec + skip * sp,
+          anim: mapAnim(c.anim, (k) => sliceKeyframes(k, skip, d)),
         });
       }
       return out.filter((x) => trackClipDur(x) >= MIN_PIECE_SEC * 0.25);
@@ -205,17 +210,21 @@ export function moveTrackClip(c: EditTrackClip, startSec: number): EditTrackClip
  * 키프레임은 클립 안 시간에 맞춰 당기거나 민다.
  */
 export function trimTrackClip(c: EditTrackClip, edge: TrimEdge, delta: number): EditTrackClip {
+  const sp = trackSpeed(c);
   if (edge === 'out') {
-    const outSec = clamp(c.outSec + delta, c.inSec + MIN_PIECE_SEC, c.sourceDurationSec);
+    const outSec = clamp(c.outSec + delta * sp, c.inSec + MIN_PIECE_SEC * sp, c.sourceDurationSec);
     return { ...c, outSec };
   }
-  // 시작은 원본 0 과 타임라인 0 을 넘지 않고, 최소 길이를 남긴다
-  const lo = Math.max(-c.inSec, -c.startSec);
-  const hi = c.outSec - MIN_PIECE_SEC - c.inSec;
+  // 시작은 원본 0 과 타임라인 0 을 넘지 않고, 최소 길이를 남긴다 (d 는 타임라인 초)
+  const lo = Math.max(-c.inSec / sp, -c.startSec);
+  const hi = trackClipDur(c) - MIN_PIECE_SEC;
   const d = clamp(delta, lo, Math.max(lo, hi));
-  const next: EditTrackClip = { ...c, inSec: c.inSec + d, startSec: c.startSec + d };
-  const dur = trackClipDur(next);
-  return { ...next, anim: mapAnim(c.anim, (k) => shiftKeyframes(k, -d, dur)) };
+  return {
+    ...c,
+    inSec: c.inSec + d * sp,
+    startSec: c.startSec + d,
+    anim: mapAnim(c.anim, (k) => sliceKeyframes(k, d, Infinity)),
+  };
 }
 
 /** 추가 트랙 클립 경계 (스냅 기준점) */
@@ -224,4 +233,22 @@ export function trackBoundaryTimes(tracks: EditTrack[]): number[] {
   for (const t of tracks)
     for (const c of t.clips) out.push(c.startSec, c.startSec + trackClipDur(c));
   return out;
+}
+
+/** 클립을 같은 종류의 다른 트랙으로 옮긴다. 종류가 다르거나 찾지 못하면 그대로 돌려준다 */
+export function moveClipToTrack(
+  tracks: EditTrack[],
+  fromId: string,
+  toId: string,
+  clipId: string,
+): EditTrack[] {
+  const from = tracks.find((t) => t.id === fromId);
+  const to = tracks.find((t) => t.id === toId);
+  const clip = from?.clips.find((c) => c.id === clipId);
+  if (!from || !to || !clip || from.id === to.id || from.kind !== to.kind) return tracks;
+  return tracks.map((t) => {
+    if (t.id === from.id) return { ...t, clips: t.clips.filter((c) => c.id !== clipId) };
+    if (t.id === to.id) return { ...t, clips: [...t.clips, clip] };
+    return t;
+  });
 }

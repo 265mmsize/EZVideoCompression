@@ -15,22 +15,25 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { animValue, trackClipDur } from '../../shared/keyframes';
+import { animValue, trackClipDur, trackSpeed } from '../../shared/keyframes';
 import { resolveCanvas, type Canvas } from '../../shared/editCanvas';
 import type { EditProject, EditTrack, EditTrackClip } from '../../shared/types/domain';
 import { libraryApi } from '../library/libraryActions';
 import { clipDur, layout } from './editOps';
 import {
   clipGain,
+  clipVolumeAt,
   contentBox,
   cssFilter,
   layersAt,
+  motionStyle,
   musicGain,
   musicTimeAt,
   needsSeek,
   preloadIndex,
   textStyle,
   textVisible,
+  trackVisual,
   watermarkStyle,
 } from './previewMath';
 
@@ -287,7 +290,7 @@ export function TimelinePreview({
         }
         el.playbackRate = c.speed;
         if (needsSeek(el.currentTime, l.sourceSec, c.speed)) el.currentTime = l.sourceSec;
-        const gain = clipGain(c, p.music) * l.opacity;
+        const gain = clipGain({ ...c, volume: clipVolumeAt(c, l.localSec) }, p.music) * l.opacity;
         el.muted = gain <= 0;
         el.volume = Math.min(1, Math.max(0, gain));
         if (el.paused) void el.play().catch(() => undefined);
@@ -313,11 +316,14 @@ export function TimelinePreview({
           const inside = local >= 0 && local < dur;
           if (track.kind === 'video' && tc.kind !== 'audio') {
             const st = el.style;
+            const vis = trackVisual(tc, Math.max(0, local));
             st.display = inside ? 'block' : 'none';
-            st.left = `${(animValue(tc, 'x', local) * 100).toFixed(3)}%`;
-            st.top = `${(animValue(tc, 'y', local) * 100).toFixed(3)}%`;
-            st.width = `${(animValue(tc, 'scale', local) * 100).toFixed(3)}%`;
-            st.opacity = String(Math.min(1, Math.max(0, animValue(tc, 'opacity', local))));
+            st.left = vis.left;
+            st.top = vis.top;
+            st.width = vis.width;
+            st.opacity = vis.opacity;
+            st.transform = vis.transform;
+            st.filter = vis.filter;
             st.zIndex = String(20 + ti);
           }
           if (!(el instanceof HTMLMediaElement)) continue;
@@ -331,8 +337,10 @@ export function TimelinePreview({
             waiting = true;
             continue;
           }
-          const desired = tc.inSec + local;
-          if (needsSeek(el.currentTime, desired, 1)) el.currentTime = desired;
+          const sp = trackSpeed(tc);
+          const desired = tc.inSec + local * sp;
+          el.playbackRate = sp;
+          if (needsSeek(el.currentTime, desired, sp)) el.currentTime = desired;
           const vol =
             tc.mute || !tc.hasAudio ? 0 : Math.min(1, Math.max(0, animValue(tc, 'volume', local)));
           el.muted = vol <= 0;
@@ -504,25 +512,30 @@ function LayerView({
       className="absolute inset-0"
       style={{ opacity: v ? v.opacity : 0, zIndex: v ? v.order + 1 : 0 }}
     >
-      <video
-        ref={videoRef}
-        preload="auto"
-        playsInline
-        className="absolute"
-        style={
-          box && clip
-            ? {
-                left: '50%',
-                top: '50%',
-                width: `${box.widthPct.toFixed(4)}%`,
-                height: `${box.heightPct.toFixed(4)}%`,
-                objectFit: 'fill',
-                transform: box.transform,
-                filter: cssFilter(clip.filters),
-              }
-            : { width: 0, height: 0 }
-        }
-      />
+      <div
+        className="absolute inset-0"
+        style={clip && v ? (motionStyle(clip, v.localSec) ?? undefined) : undefined}
+      >
+        <video
+          ref={videoRef}
+          preload="auto"
+          playsInline
+          className="absolute"
+          style={
+            box && clip
+              ? {
+                  left: '50%',
+                  top: '50%',
+                  width: `${box.widthPct.toFixed(4)}%`,
+                  height: `${box.heightPct.toFixed(4)}%`,
+                  objectFit: 'fill',
+                  transform: box.transform,
+                  filter: cssFilter(clip.filters),
+                }
+              : { width: 0, height: 0 }
+          }
+        />
+      </div>
       {clip &&
         v &&
         clip.texts

@@ -12,7 +12,7 @@ import {
   trackClipDur,
   upsertKeyframe,
 } from '../../shared/keyframes';
-import type { AnimProp, EditTrack, EditTrackClip } from '../../shared/types/domain';
+import type { AnimProp, EditTrack, EditTrackClip, Rotation } from '../../shared/types/domain';
 import { Button } from '../components/ui';
 import { moveTrackClip } from './timelineOps';
 import { keyframeTimes } from './TrackRows';
@@ -131,6 +131,94 @@ export function TrackClipPanel({
           />
           음소거
         </label>
+      )}
+
+      {(clip.kind !== 'image' || showVisual) && (
+        <div className="space-y-1">
+          <h4 className="mt-2 font-semibold text-[var(--c-muted)]">모양</h4>
+          {clip.kind !== 'image' && (
+            <label className="flex items-center justify-between gap-2">
+              배속
+              <select
+                aria-label="트랙 클립 배속"
+                className="rounded border border-[var(--c-border)] bg-[var(--c-surface)] px-1"
+                value={String(clip.speed ?? 1)}
+                onChange={(e) =>
+                  onChange((c) => ({ ...c, speed: Number(e.target.value) }), `tspeed:${clip.id}`)
+                }
+              >
+                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].map((v) => (
+                  <option key={v} value={String(v)}>
+                    ×{v}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {showVisual && (
+            <>
+              <div className="flex flex-wrap gap-1">
+                <Button
+                  onClick={() =>
+                    onChange(
+                      (c) => ({ ...c, rotate: (((c.rotate ?? 0) + 90) % 360) as Rotation }),
+                      null,
+                    )
+                  }
+                >
+                  90° 회전 ({String(clip.rotate ?? 0)}°)
+                </Button>
+                <Button
+                  variant={clip.flipH ? 'primary' : 'ghost'}
+                  onClick={() => onChange((c) => ({ ...c, flipH: !c.flipH }), null)}
+                >
+                  좌우 반전
+                </Button>
+                <Button
+                  variant={clip.flipV ? 'primary' : 'ghost'}
+                  onClick={() => onChange((c) => ({ ...c, flipV: !c.flipV }), null)}
+                >
+                  상하 반전
+                </Button>
+              </div>
+              {(
+                [
+                  ['brightness', '밝기', -0.5, 0.5, 0],
+                  ['contrast', '대비', 0.5, 2, 1],
+                  ['saturation', '채도', 0, 3, 1],
+                ] as const
+              ).map(([key, label, min, max, base]) => (
+                <label key={key} className="flex flex-col">
+                  <span>
+                    {label} {(clip.filters?.[key] ?? base).toFixed(2)}
+                  </span>
+                  <input
+                    type="range"
+                    aria-label={`트랙 클립 ${label}`}
+                    min={min}
+                    max={max}
+                    step={0.05}
+                    value={clip.filters?.[key] ?? base}
+                    onChange={(e) =>
+                      onChange(
+                        (c) => ({
+                          ...c,
+                          filters: {
+                            brightness: c.filters?.brightness ?? 0,
+                            contrast: c.filters?.contrast ?? 1,
+                            saturation: c.filters?.saturation ?? 1,
+                            [key]: Number(e.target.value),
+                          },
+                        }),
+                        `tlook:${clip.id}:${key}`,
+                      )
+                    }
+                  />
+                </label>
+              ))}
+            </>
+          )}
+        </div>
       )}
 
       <h4 className="mt-2 font-semibold text-[var(--c-muted)]">

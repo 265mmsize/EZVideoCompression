@@ -2,7 +2,14 @@
  * 키프레임 계산 (순수 함수). 렌더 계획(FFmpeg 식)과 실시간 미리보기(화면 값)가 같은 규칙을 쓴다.
  * 키프레임 사이는 직선으로 잇고, 첫 키프레임 앞은 첫 값, 마지막 뒤는 마지막 값을 유지한다.
  */
-import type { AnimProp, EditKeyframe, EditTrackClip } from './types/domain';
+import type {
+  AnimProp,
+  EditClip,
+  EditClipMotion,
+  EditKeyframe,
+  EditTrackClip,
+  MotionProp,
+} from './types/domain';
 
 /** 이 간격 안의 키프레임은 같은 시점으로 본다 (초) */
 export const KEYFRAME_MERGE_SEC = 0.05;
@@ -81,9 +88,16 @@ export function hasKeyframeNear(kfs: readonly EditKeyframe[], t: number): boolea
   return kfs.some((k) => Math.abs(k.t - t) < KEYFRAME_MERGE_SEC);
 }
 
-/** 추가 트랙 클립의 표시 길이 (배속 없음) */
-export function trackClipDur(c: Pick<EditTrackClip, 'inSec' | 'outSec'>): number {
-  return Math.max(0, c.outSec - c.inSec);
+/** 추가 트랙 클립 배속 (이미지는 늘 1) */
+export function trackSpeed(c: Pick<EditTrackClip, 'kind' | 'speed'>): number {
+  return c.kind === 'image' ? 1 : (c.speed ?? 1);
+}
+
+/** 추가 트랙 클립의 타임라인 길이 (배속 적용) */
+export function trackClipDur(
+  c: Pick<EditTrackClip, 'inSec' | 'outSec' | 'kind' | 'speed'>,
+): number {
+  return Math.max(0, c.outSec - c.inSec) / trackSpeed(c);
 }
 
 /** 클립 안 시간 localT 의 속성 값 */
@@ -101,4 +115,91 @@ export function shiftKeyframes(
     .map((k) => ({ t: k.t + offset, v: k.v }))
     .filter((k) => k.t >= -1e-9 && k.t <= maxT + 1e-9)
     .map((k) => ({ t: Math.max(0, k.t), v: k.v }));
+}
+
+// ----- 메인 클립 움직임 (켄번스·음량) -----
+
+/** 키프레임이 없을 때의 기본값 (음량은 클립 음량) */
+export const MOTION_DEFAULTS: Readonly<Record<Exclude<MotionProp, 'volume'>, number>> = {
+  zoom: 1,
+  panX: 0.5,
+  panY: 0.5,
+};
+
+export function emptyMotion(): EditClipMotion {
+  return { zoom: [], panX: [], panY: [], volume: [] };
+}
+
+/** 메인 클립의 클립 안 시간 localT 의 움직임 값 */
+export function motionValue(
+  c: Pick<EditClip, 'motion' | 'volume'>,
+  prop: MotionProp,
+  localT: number,
+): number {
+  const fallback = prop === 'volume' ? c.volume : MOTION_DEFAULTS[prop];
+  return valueAt(c.motion?.[prop] ?? [], localT, fallback);
+}
+
+/** 확대·이동 키프레임이 있는지 (렌더에서 scale+crop 단계를 넣을지) */
+export function hasZoomPan(c: Pick<EditClip, 'motion'>): boolean {
+  const m = c.motion;
+  return !!m && (m.zoom.length > 0 || m.panX.length > 0 || m.panY.length > 0);
+}
+
+/** 클립을 나누거나 자를 때 움직임 키프레임을 조각에 맞춘다 */
+export function shiftMotion(
+  m: EditClipMotion | undefined,
+  offset: number,
+  maxT: number,
+): EditClipMotion | undefined {
+  if (!m) return undefined;
+  return {
+    zoom: shiftKeyframes(m.zoom, offset, maxT),
+    panX: shiftKeyframes(m.panX, offset, maxT),
+    panY: shiftKeyframes(m.panY, offset, maxT),
+    volume: shiftKeyframes(m.volume, offset, maxT),
+  };
+}
+
+/**
+ * 클립 안 구간 [from, to] 만큼의 키프레임을 0 부터 시작하도록 잘라 낸다.
+ * 양 끝에 그 시점의 보간 값을 키프레임으로 넣어, 조각이 원래 움직임을 그대로 이어 가게 한다.
+ * to 가 무한대이면 뒤쪽은 자르지 않는다. 키프레임이 없으면 빈 배열.
+ */
+export function sliceKeyframes(
+  kfs: readonly EditKeyframe[],
+  from: number,
+  to: number,
+): EditKeyframe[] {
+  const k = normalizeKeyframes(kfs);
+  const first = k[0];
+  if (!first) return [];
+  const eps = 1e-6;
+  const inner = k
+    .filter((x) => x.t > from + eps && (!Number.isFinite(to) || x.t < to - eps))
+    .map((x) => ({ t: x.t - from, v: x.v }));
+  const out: EditKeyframe[] = [{ t: 0, v: valueAt(k, from, first.v) }, ...inner];
+  if (Number.isFinite(to)) out.push({ t: Math.max(0, to - from), v: valueAt(k, to, first.v) });
+  else {
+    // 뒤를 자르지 않을 때는 원래 마지막 키프레임까지 남긴다
+    const last = k[k.length - 1];
+    if (last && last.t > from + eps && !inner.some((x) => Math.abs(x.t - (last.t - from)) < eps))
+      out.push({ t: last.t - from, v: last.v });
+  }
+  return normalizeKeyframes(out);
+}
+
+/** 메인 클립 움직임 전체를 [from, to] 로 잘라 낸다 */
+export function sliceMotion(
+  m: EditClipMotion | undefined,
+  from: number,
+  to: number,
+): EditClipMotion | undefined {
+  if (!m) return undefined;
+  return {
+    zoom: sliceKeyframes(m.zoom, from, to),
+    panX: sliceKeyframes(m.panX, from, to),
+    panY: sliceKeyframes(m.panY, from, to),
+    volume: sliceKeyframes(m.volume, from, to),
+  };
 }

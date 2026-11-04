@@ -225,3 +225,152 @@ describe('이전 버전 프로젝트', () => {
     if (parsed.success) expect(parsed.data.project.tracks).toEqual([]);
   });
 });
+
+describe('움직임·트랙 모양 렌더', () => {
+  it('확대·초점 키프레임으로 가운데가 왼쪽 위(빨강)에서 오른쪽 아래(노랑)로 바뀌고, 회전 오버레이와 배속 소리가 들어간다', async () => {
+    const quad = path.join(dir, '사분면.mp4');
+    ff([
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:s=320x180:r=30:d=3',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=lime:s=320x180:r=30:d=3',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=blue:s=320x180:r=30:d=3',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=yellow:s=320x180:r=30:d=3',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=440:sample_rate=48000:duration=3',
+      '-filter_complex',
+      '[0:v][1:v]hstack[t];[2:v][3:v]hstack[b];[t][b]vstack[v]',
+      '-map',
+      '[v]',
+      '-map',
+      '4:a',
+      '-c:v',
+      'libx264',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-shortest',
+      quad,
+    ]);
+    const info = await ws.services.videoEdit.probeSource(quad);
+    const main: EditClip = {
+      id: crypto.randomUUID(),
+      path: info.path,
+      fileName: info.fileName,
+      sourceDurationSec: info.durationSec ?? 3,
+      sourceWidth: info.width ?? 640,
+      sourceHeight: info.height ?? 360,
+      hasAudio: info.hasAudio,
+      inSec: 0,
+      outSec: 3,
+      speed: 1,
+      volume: 1,
+      mute: false,
+      rotate: 0,
+      flipH: false,
+      flipV: false,
+      filters: { brightness: 0, contrast: 1, saturation: 1, sharpen: 0, denoise: 0 },
+      stabilize: false,
+      transition: { type: 'none', durationSec: 1 },
+      texts: [],
+      motion: {
+        zoom: [{ t: 0, v: 2 }],
+        panX: [
+          { t: 0, v: 0 },
+          { t: 2, v: 1 },
+        ],
+        panY: [
+          { t: 0, v: 0 },
+          { t: 2, v: 1 },
+        ],
+        volume: [
+          { t: 0, v: 0 },
+          { t: 1, v: 1 },
+        ],
+      },
+    };
+    const logo: EditTrackClip = {
+      id: crypto.randomUUID(),
+      path: path.join(dir, '로고.png'),
+      fileName: '로고.png',
+      kind: 'image',
+      sourceDurationSec: 86_400,
+      sourceWidth: 200,
+      sourceHeight: 100,
+      hasAudio: false,
+      startSec: 2,
+      inSec: 0,
+      outSec: 1,
+      volume: 1,
+      mute: false,
+      x: 0.5,
+      y: 0.5,
+      scale: 0.1,
+      opacity: 1,
+      anim: { x: [], y: [], scale: [], opacity: [], volume: [] },
+      rotate: 90,
+    };
+    const sfx: EditTrackClip = {
+      ...logo,
+      id: crypto.randomUUID(),
+      path: path.join(dir, '효과음.wav'),
+      fileName: '효과음.wav',
+      kind: 'audio',
+      sourceDurationSec: 2,
+      sourceWidth: 0,
+      sourceHeight: 0,
+      hasAudio: true,
+      startSec: 0,
+      inSec: 0,
+      outSec: 2,
+      rotate: undefined,
+      speed: 2,
+    };
+    const p0 = ws.services.videoEdit.create('움직임 렌더');
+    const project: EditProject = {
+      ...p0,
+      clips: [main],
+      canvas: { preset: '720p', fps: 30 },
+      output: { container: 'mp4', codec: 'h264', crf: 26, preset: 'veryfast' },
+      tracks: [
+        { id: crypto.randomUUID(), kind: 'video', name: '영상 1', enabled: true, clips: [logo] },
+        { id: crypto.randomUUID(), kind: 'audio', name: '오디오 1', enabled: true, clips: [sfx] },
+      ],
+    };
+    ws.services.videoEdit.save(project);
+    const renderId = ws.services.videoEdit.render(project.id, 'export', {
+      kind: 'suffix',
+      suffix: '-motion',
+    });
+    const done = await waitRender(renderId);
+    expect(done.status, done.error ?? '').toBe('done');
+    const out = done.outputPath ?? '';
+    const s = streams(out);
+    expect(s.kinds).toEqual(['audio', 'video']);
+    expect(Math.abs(s.duration - 3)).toBeLessThan(0.2);
+    const isRed = ([r, g, b]: [number, number, number]): boolean => r > 180 && g < 80 && b < 80;
+    const isYellow = ([r, g, b]: [number, number, number]): boolean => r > 180 && g > 180 && b < 80;
+    // 0.2초: 확대 2배, 초점 왼쪽 위 → 화면 가운데에 빨강 사분면
+    expect(isRed(pixelAt(out, 0.2, 640, 360))).toBe(true);
+    // 2.5초: 초점 오른쪽 아래 → 화면 가운데에 노랑 사분면, 오버레이는 90도 회전해 세로로 길다
+    expect(isYellow(pixelAt(out, 2.5, 200, 600))).toBe(true);
+    // 로고 200×100 을 90도 돌리면 100×200, 너비를 캔버스의 0.1(128px)로 맞추면 128×256 이 된다.
+    // 회전하지 않았다면 128×64 로 가운데 ±32px 에만 있을 빨강이 위로 100px 지점에도 있다.
+    expect(isRed(pixelAt(out, 2.5, 640, 360 - 100))).toBe(true);
+    // 너비 ±64px 바깥은 바탕(노랑)이다
+    expect(isYellow(pixelAt(out, 2.5, 640 - 80, 360))).toBe(true);
+  }, 300_000);
+});

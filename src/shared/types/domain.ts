@@ -807,7 +807,14 @@ export interface EditClip {
   /** 다음 클립으로 넘어가는 전환 */
   transition: { type: TransitionType; durationSec: number };
   texts: EditTextOverlay[];
+  /** 확대·이동(켄번스)·음량 키프레임. 클립 안 시간(속도 적용 후) 기준. 없으면 움직이지 않는다 */
+  motion?: EditClipMotion;
 }
+
+/** 메인 클립 키프레임 속성: 확대(1 이상), 화면 초점(0~1, 0.5 = 가운데), 음량 */
+export const MOTION_PROPS = ['zoom', 'panX', 'panY', 'volume'] as const;
+export type MotionProp = (typeof MOTION_PROPS)[number];
+export type EditClipMotion = Record<MotionProp, EditKeyframe[]>;
 
 export interface EditMusic {
   path: string;
@@ -877,6 +884,20 @@ export interface EditTrackClip {
   opacity: number;
   /** 속성별 키프레임. 비어 있으면 위의 고정 값을 쓴다 */
   anim: EditAnim;
+  /** 0.25 ~ 4 (없으면 1). 이미지에는 쓰지 않는다 */
+  speed?: number;
+  /** 회전·반전 (없으면 그대로) */
+  rotate?: Rotation;
+  flipH?: boolean;
+  flipV?: boolean;
+  /** 밝기·대비·채도 (없으면 그대로) */
+  filters?: EditTrackClipFilters;
+}
+
+export interface EditTrackClipFilters {
+  brightness: number;
+  contrast: number;
+  saturation: number;
 }
 
 export interface EditTrack {
