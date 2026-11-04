@@ -13,6 +13,8 @@ import {
   IMAGE_EXPORT_FORMATS,
   TEXT_X,
   TEXT_Y,
+  TRACK_CLIP_KINDS,
+  TRACK_KINDS,
   TRANSITIONS,
   WATERMARK_POSITIONS,
   LIBRARY_SORTS,
@@ -151,6 +153,47 @@ export const kcpFileSchema = z.object({
   project: z.lazy(() => editProjectSchema),
 });
 
+const keyframeSchema = z.object({
+  t: z.number().min(0).max(86_400),
+  v: z.number().min(-10).max(10),
+});
+const keyframeList = z.array(keyframeSchema).max(100);
+const editTrackClipSchema = z
+  .object({
+    id: idSchema,
+    path: absolutePath,
+    fileName: z.string().min(1).max(255),
+    kind: z.enum(TRACK_CLIP_KINDS),
+    sourceDurationSec: sec,
+    sourceWidth: z.number().int().min(0).max(65_536),
+    sourceHeight: z.number().int().min(0).max(65_536),
+    hasAudio: z.boolean(),
+    startSec: z.number().min(0).max(86_400),
+    inSec: sec,
+    outSec: sec,
+    volume: z.number().min(0).max(2),
+    mute: z.boolean(),
+    x: z.number().min(-1).max(2),
+    y: z.number().min(-1).max(2),
+    scale: z.number().min(0.02).max(2),
+    opacity: z.number().min(0).max(1),
+    anim: z.object({
+      x: keyframeList,
+      y: keyframeList,
+      scale: keyframeList,
+      opacity: keyframeList,
+      volume: keyframeList,
+    }),
+  })
+  .refine((c) => c.outSec > c.inSec, { message: '끝 시점이 시작보다 커야 합니다' });
+const editTrackSchema = z.object({
+  id: idSchema,
+  kind: z.enum(TRACK_KINDS),
+  name: z.string().min(1).max(60),
+  enabled: z.boolean(),
+  clips: z.array(editTrackClipSchema).max(200),
+});
+
 export const editProjectSchema = z.object({
   id: idSchema,
   name: z.string().min(1).max(120),
@@ -187,6 +230,7 @@ export const editProjectSchema = z.object({
     preset: z.enum(EDIT_PRESETS),
     noAudio: z.boolean().optional(),
   }),
+  tracks: z.array(editTrackSchema).max(20).default([]),
   createdAt: z.string().max(40),
   updatedAt: z.string().max(40),
 });
@@ -354,6 +398,7 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'edit:pickMedia': z.object({ kind: z.enum(['video', 'audio', 'image']) }),
   'edit:frame': z.object({ path: absolutePath, timeSec: sec }),
   'edit:mediaUrl': z.object({ path: absolutePath }),
+  'edit:waveform': z.object({ path: absolutePath }),
   'edit:render': z.object({
     projectId: idSchema,
     mode: z.enum(['proxy', 'export']),

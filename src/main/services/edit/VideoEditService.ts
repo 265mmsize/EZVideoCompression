@@ -34,6 +34,13 @@ import type { ToolPaths } from '../JobRunner';
 import type { MediaProbeService } from '../MediaProbeService';
 import { ProgressEstimator } from '../ProgressEstimator';
 import { mimeOf, type MediaTokenRegistry } from '../library/MediaTokenRegistry';
+import {
+  computePeaks,
+  WAVE_MAX_SEC,
+  WAVE_PEAKS_PER_SEC,
+  WAVE_SAMPLE_RATE,
+  type WaveformData,
+} from './waveform';
 import type { ThumbnailService } from '../library/ThumbnailService';
 import {
   buildRenderPlan,
@@ -94,6 +101,7 @@ export function newProject(name: string, at: string): EditProject {
     watermark: null,
     canvas: { preset: 'auto', fps: 'auto' },
     output: { container: 'mp4', codec: 'h264', crf: 20, preset: 'medium' },
+    tracks: [],
     createdAt: at,
     updatedAt: at,
   };
@@ -134,6 +142,14 @@ export class VideoEditService {
         throw new AppError('INVALID_REQUEST', `${c.fileName}: 끝 시점이 시작보다 커야 합니다`);
       if (c.outSec > c.sourceDurationSec + 0.05)
         throw new AppError('INVALID_REQUEST', `${c.fileName}: 끝 시점이 원본 길이를 넘습니다`);
+    }
+    for (const t of project.tracks) {
+      for (const c of t.clips) {
+        if (c.outSec <= c.inSec)
+          throw new AppError('INVALID_REQUEST', `${c.fileName}: 끝 시점이 시작보다 커야 합니다`);
+        if (c.outSec > c.sourceDurationSec + 0.05)
+          throw new AppError('INVALID_REQUEST', `${c.fileName}: 끝 시점이 원본 길이를 넘습니다`);
+      }
     }
     const next = { ...project, updatedAt: this.now() };
     if (!this.deps.repo.update(next))
@@ -186,6 +202,71 @@ export class VideoEditService {
   }
 
   /** 원본 파일의 시점 프레임 (효과 미적용). 썸네일 캐시를 쓴다 */
+  /** 파형 캐시 (경로·크기·수정 시각 기준, 최근 32개) */
+  private readonly waveCache = new Map<string, WaveformData>();
+
+  /**
+   * 오디오 파형 피크. 음성이 없거나 읽지 못하면 빈 배열을 돌려준다 (편집은 계속할 수 있다).
+   * 원본은 읽기만 하고, 중간 PCM 은 임시 폴더에 썼다가 지운다.
+   */
+  async waveform(filePath: string): Promise<WaveformData> {
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(filePath);
+    } catch (err) {
+      throw new AppError('INPUT_MISSING', filePath, { cause: err });
+    }
+    if (!st.isFile()) throw new AppError('INPUT_UNREADABLE', filePath);
+    const key = `${filePath}|${String(st.size)}|${String(st.mtimeMs)}`;
+    const hit = this.waveCache.get(key);
+    if (hit) return hit;
+    fs.mkdirSync(this.deps.tempRoot, { recursive: true });
+    const out = path.join(this.deps.tempRoot, `wave-${randomUUID()}.raw`);
+    const empty: WaveformData = { peaksPerSec: WAVE_PEAKS_PER_SEC, peaks: [] };
+    try {
+      const tools = this.deps.tools();
+      const res = await this.deps.proc.run(
+        tools.ffmpeg,
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-nostdin',
+          '-y',
+          '-t',
+          String(WAVE_MAX_SEC),
+          '-i',
+          filePath,
+          '-map',
+          '0:a:0',
+          '-ac',
+          '1',
+          '-ar',
+          String(WAVE_SAMPLE_RATE),
+          '-acodec',
+          'pcm_s16le',
+          '-f',
+          's16le',
+          out,
+        ],
+        { timeoutMs: 180_000 },
+      );
+      if (res.exitCode !== 0 || !fs.existsSync(out)) return empty;
+      const data: WaveformData = {
+        peaksPerSec: WAVE_PEAKS_PER_SEC,
+        peaks: computePeaks(fs.readFileSync(out), WAVE_SAMPLE_RATE, WAVE_PEAKS_PER_SEC),
+      };
+      this.waveCache.set(key, data);
+      if (this.waveCache.size > 32) {
+        const oldest = this.waveCache.keys().next().value;
+        if (oldest !== undefined) this.waveCache.delete(oldest);
+      }
+      return data;
+    } finally {
+      fs.rmSync(out, { force: true });
+    }
+  }
+
   /**
    * 실시간 미리보기용 재생 주소. 영상·음성 파일만 토큰으로 연다 (파일은 읽기만 한다).
    */

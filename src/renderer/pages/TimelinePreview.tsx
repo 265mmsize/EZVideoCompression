@@ -6,9 +6,18 @@
  * 배속·회전·반전·밝기·대비·채도는 CSS 로, 텍스트·워터마크는 겹쳐서, 전환은 불투명도로 흉내 낸다.
  * 손떨림 보정, 선명하게, 노이즈 제거, 닦기·밀기 같은 전환 모양은 반영하지 않는다. 결과는 내보내기에서 확인한다.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import { animValue, trackClipDur } from '../../shared/keyframes';
 import { resolveCanvas, type Canvas } from '../../shared/editCanvas';
-import type { EditProject } from '../../shared/types/domain';
+import type { EditProject, EditTrack, EditTrackClip } from '../../shared/types/domain';
 import { libraryApi } from '../library/libraryActions';
 import { clipDur, layout } from './editOps';
 import {
@@ -72,6 +81,18 @@ export function TimelinePreview({
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<ViewLayer[]>([]);
   const [watermarkUrl, setWatermarkUrl] = useState<string | null>(null);
+  // 추가 트랙: 지금 보이거나 곧 보일 클립만 요소를 붙인다
+  const [trackWindow, setTrackWindow] = useState<string[]>([]);
+  const trackEls = useRef(
+    new Map<string, HTMLVideoElement | HTMLAudioElement | HTMLImageElement>(),
+  );
+  const register = useCallback(
+    (id: string, el: HTMLVideoElement | HTMLAudioElement | HTMLImageElement | null): void => {
+      if (el) trackEls.current.set(id, el);
+      else trackEls.current.delete(id);
+    },
+    [],
+  );
 
   // 최신 프로젝트와 콜백을 재생 루프에 넘긴다 (재생 중 편집도 반영된다)
   useEffect(() => {
@@ -82,9 +103,19 @@ export function TimelinePreview({
   const paths = useMemo(() => {
     const list = project.clips.map((c) => c.path);
     if (project.music) list.push(project.music.path);
+    for (const t of project.tracks)
+      for (const c of t.clips) if (c.kind !== 'image') list.push(c.path);
     return [...new Set(list)];
-  }, [project.clips, project.music]);
-  const pathsKey = paths.join('\n');
+  }, [project.clips, project.music, project.tracks]);
+  const imagePaths = useMemo(
+    () => [
+      ...new Set(
+        project.tracks.flatMap((t) => t.clips.filter((c) => c.kind === 'image').map((c) => c.path)),
+      ),
+    ],
+    [project.tracks],
+  );
+  const pathsKey = `${paths.join('\n')}\n#\n${imagePaths.join('\n')}`;
 
   // 재생 주소를 미리 받는다. 하나라도 열 수 없으면 알리고 멈춘다.
   useEffect(() => {
@@ -99,6 +130,17 @@ export function TimelinePreview({
           return;
         }
         urls.current.set(p, u);
+      }
+      for (const p of imagePaths) {
+        const key = `img:${p}`;
+        if (urls.current.has(key)) continue;
+        const info = await libraryApi.imageOpen(p);
+        if (!live.on) return;
+        if (!info) {
+          latest.current.onError(`미리보기용 이미지를 열 수 없습니다: ${p}`);
+          return;
+        }
+        urls.current.set(key, info.url);
       }
       if (live.on) setReady(true);
     })();
@@ -182,7 +224,9 @@ export function TimelinePreview({
     const stopAll = (): void => {
       for (const r of els) r.current?.pause();
       musicRef.current?.pause();
+      for (const el of trackEls.current.values()) if (el instanceof HTMLMediaElement) el.pause();
     };
+    let lastWindowKey = '';
 
     const tick = (now: number): void => {
       const { project: p, onTime, onEnded } = latest.current;
@@ -248,11 +292,69 @@ export function TimelinePreview({
         el.volume = Math.min(1, Math.max(0, gain));
         if (el.paused) void el.play().catch(() => undefined);
       }
+      // 추가 트랙: 위치·크기·불투명도·음량은 키프레임 값을 프레임마다 그대로 적용한다
+      const mountIds: string[] = [];
+      const toPlay: HTMLMediaElement[] = [];
+      p.tracks.forEach((track, ti) => {
+        if (!track.enabled) return;
+        for (const tc of track.clips) {
+          const start = tc.startSec;
+          const dur = Math.min(trackClipDur(tc), total - start);
+          if (dur <= 0) continue;
+          if (clock >= start - PRELOAD_SEC && clock < start + dur) mountIds.push(tc.id);
+          const el = trackEls.current.get(tc.id);
+          if (!el) continue;
+          const url = urls.current.get(tc.kind === 'image' ? `img:${tc.path}` : tc.path);
+          if (url && el.dataset['src'] !== url) {
+            el.dataset['src'] = url;
+            el.src = url;
+          }
+          const local = clock - start;
+          const inside = local >= 0 && local < dur;
+          if (track.kind === 'video' && tc.kind !== 'audio') {
+            const st = el.style;
+            st.display = inside ? 'block' : 'none';
+            st.left = `${(animValue(tc, 'x', local) * 100).toFixed(3)}%`;
+            st.top = `${(animValue(tc, 'y', local) * 100).toFixed(3)}%`;
+            st.width = `${(animValue(tc, 'scale', local) * 100).toFixed(3)}%`;
+            st.opacity = String(Math.min(1, Math.max(0, animValue(tc, 'opacity', local))));
+            st.zIndex = String(20 + ti);
+          }
+          if (!(el instanceof HTMLMediaElement)) continue;
+          if (!inside) {
+            if (!el.paused) el.pause();
+            if (el.readyState >= 1 && !el.seeking && Math.abs(el.currentTime - tc.inSec) > 0.3)
+              el.currentTime = tc.inSec;
+            continue;
+          }
+          if (el.readyState < HAVE_CURRENT_DATA || el.seeking) {
+            waiting = true;
+            continue;
+          }
+          const desired = tc.inSec + local;
+          if (needsSeek(el.currentTime, desired, 1)) el.currentTime = desired;
+          const vol =
+            tc.mute || !tc.hasAudio ? 0 : Math.min(1, Math.max(0, animValue(tc, 'volume', local)));
+          el.muted = vol <= 0;
+          el.volume = vol;
+          toPlay.push(el);
+        }
+      });
+      const windowKey = mountIds.join('|');
+      if (windowKey !== lastWindowKey) {
+        lastWindowKey = windowKey;
+        setTrackWindow(mountIds);
+      }
+
       // 보이지 않는 요소(미리 불러 둔 다음 클립 포함)는 멈춰 둔다
       els.forEach((r, si) => {
         if (!active.has(si)) r.current?.pause();
       });
       if (waiting) for (const si of active) els[si]?.current?.pause();
+      for (const el of toPlay) {
+        if (waiting) el.pause();
+        else if (el.paused) void el.play().catch(() => undefined);
+      }
 
       // 배경 음악
       const a = musicRef.current;
@@ -305,7 +407,14 @@ export function TimelinePreview({
   useEffect(() => {
     const els = [v0.current, v1.current];
     const music = musicRef.current;
+    const tracked = trackEls.current;
     return () => {
+      for (const el of tracked.values()) {
+        if (!(el instanceof HTMLMediaElement)) continue;
+        el.pause();
+        el.removeAttribute('src');
+        el.load();
+      }
       for (const el of els) {
         if (!el) continue;
         el.pause();
@@ -335,12 +444,31 @@ export function TimelinePreview({
       >
         <LayerView videoRef={v0} slot={0} view={view} project={project} canvas={canvas} />
         <LayerView videoRef={v1} slot={1} view={view} project={project} canvas={canvas} />
+        {project.tracks.flatMap((track) =>
+          track.enabled
+            ? track.clips
+                .filter((c) => trackWindow.includes(c.id))
+                .map((c) => (
+                  <TrackMedia
+                    key={c.id}
+                    clip={c}
+                    track={track}
+                    register={register}
+                    onFail={(name) =>
+                      onError(
+                        `${name}: 미리보기에서 재생할 수 없는 형식입니다. 내보내기에는 영향이 없습니다.`,
+                      )
+                    }
+                  />
+                ))
+            : [],
+        )}
         {project.watermark && watermarkUrl && (
           <img
             src={watermarkUrl}
             alt=""
             aria-hidden
-            style={{ ...watermarkStyle(project.watermark, canvas), zIndex: 10 }}
+            style={{ ...watermarkStyle(project.watermark, canvas), zIndex: 100 }}
           />
         )}
         <audio ref={musicRef} preload="auto" />
@@ -405,5 +533,54 @@ function LayerView({
             </span>
           ))}
     </div>
+  );
+}
+
+/** 추가 트랙 클립 하나의 요소. 위치·크기·표시 여부는 재생 루프가 직접 정한다 */
+function TrackMedia({
+  clip,
+  track,
+  register,
+  onFail,
+}: {
+  clip: EditTrackClip;
+  track: EditTrack;
+  register: (id: string, el: HTMLVideoElement | HTMLAudioElement | HTMLImageElement | null) => void;
+  onFail: (fileName: string) => void;
+}): ReactNode {
+  const visualStyle = { transform: 'translate(-50%, -50%)', height: 'auto' } as const;
+  if (clip.kind === 'image') {
+    return (
+      <img
+        ref={(el) => register(clip.id, el)}
+        alt=""
+        aria-hidden
+        data-testid="track-media"
+        className="pointer-events-none absolute hidden"
+        style={visualStyle}
+        onError={() => onFail(clip.fileName)}
+      />
+    );
+  }
+  if (track.kind === 'video' && clip.kind === 'video') {
+    return (
+      <video
+        ref={(el) => register(clip.id, el)}
+        preload="auto"
+        playsInline
+        data-testid="track-media"
+        className="pointer-events-none absolute hidden"
+        style={visualStyle}
+        onError={() => onFail(clip.fileName)}
+      />
+    );
+  }
+  return (
+    <audio
+      ref={(el) => register(clip.id, el)}
+      preload="auto"
+      data-testid="track-media"
+      onError={() => onFail(clip.fileName)}
+    />
   );
 }

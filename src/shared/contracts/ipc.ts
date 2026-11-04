@@ -260,6 +260,11 @@ export interface InvokeContract {
   'edit:frame': { request: { path: string; timeSec: number }; response: { url: string } };
   /** 실시간 미리보기용 영상·음성 재생 주소 */
   'edit:mediaUrl': { request: { path: string }; response: { url: string } };
+  /** 오디오 파형 피크 (0~100, 초당 peaksPerSec 개). 음성이 없으면 빈 배열 */
+  'edit:waveform': {
+    request: { path: string };
+    response: { peaksPerSec: number; peaks: number[] };
+  };
   /** 렌더 시작. 진행은 edit:render.progress 이벤트 */
   'edit:render': {
     request: { projectId: string; mode: EditRenderMode; target: ImageExportTarget | null };
@@ -386,6 +391,7 @@ export const CHANNEL_NAMES = {
     'edit:pickMedia',
     'edit:frame',
     'edit:mediaUrl',
+    'edit:waveform',
     'edit:render',
     'edit:render.cancel',
     'edit:pickExportPath',

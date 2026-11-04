@@ -19,6 +19,8 @@ import {
   type EditProjectSummary,
   type EditRenderProgress,
   type EditTextOverlay,
+  type EditTrack,
+  type EditTrackClip,
   type Rotation,
 } from '../../shared/types/domain';
 import { subscribe } from '../api';
@@ -34,7 +36,12 @@ import {
 import {
   boundaryTimes,
   cutOut,
+  cutOutTracks,
   keepOnly,
+  keepOnlyTracks,
+  moveTrackClip,
+  trackBoundaryTimes,
+  trimTrackClip,
   moveTime,
   normalizeRange,
   snapTime,
@@ -47,6 +54,9 @@ import { formatDuration } from '../format';
 import { libraryApi } from '../library/libraryActions';
 import { MediaPlayer } from '../library/MediaPlayer';
 import { TimelinePreview } from './TimelinePreview';
+import { Waveform } from './Waveform';
+import { MusicRow, TrackRows, type TrackSel } from './TrackRows';
+import { TrackClipPanel } from './TrackClipPanel';
 import { notify } from '../stores/appStore';
 
 const AUTOSAVE_MS = 600;
@@ -112,7 +122,24 @@ function FilmStrip({ clip }: { clip: EditClip }): ReactNode {
 type DragState =
   | { kind: 'range'; anchorSec: number; startX: number; moved: boolean }
   | { kind: 'scrub'; startX: number; moved: boolean }
-  | { kind: 'trim'; id: string; edge: TrimEdge; base: EditClip; startX: number };
+  | { kind: 'trim'; id: string; edge: TrimEdge; base: EditClip; startX: number }
+  | {
+      kind: 'tmove';
+      trackId: string;
+      id: string;
+      base: EditTrackClip;
+      startX: number;
+      moved: boolean;
+    }
+  | {
+      kind: 'ttrim';
+      trackId: string;
+      id: string;
+      edge: TrimEdge;
+      base: EditTrackClip;
+      startX: number;
+      moved: boolean;
+    };
 
 /** 눈금 간격: 확대 정도에 따라 1·5·10초 */
 function rulerTicks(total: number, pxPerSec: number): number[] {
@@ -172,6 +199,8 @@ export function VideoEditorPage(): ReactNode {
   // 실시간 미리보기 재생 (근사치). 재생을 시작한 위치를 기억해 그 위치부터 다시 그린다.
   const [playing, setPlaying] = useState(false);
   const [playFrom, setPlayFrom] = useState(0);
+  // 고른 추가 트랙 클립 (메인 클립 선택과 함께 쓰지 않는다)
+  const [selTrack, setSelTrack] = useState<TrackSel | null>(null);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const dragRef = useRef<DragState | null>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -288,6 +317,7 @@ export function VideoEditorPage(): ReactNode {
   };
 
   const clips = useMemo(() => project?.clips ?? [], [project]);
+  const tracks = useMemo(() => project?.tracks ?? [], [project]);
   const { starts, total } = useMemo(() => layout(clips), [clips]);
   const current = clips.find((c) => c.id === selectedClip) ?? null;
 
@@ -503,6 +533,121 @@ export function VideoEditorPage(): ReactNode {
 
   // -------------------------------------------------------------------------
 
+  // ----- 추가 트랙 (모두 실행 취소 가능) -----
+  const updateTrackClip = (
+    trackId: string,
+    clipId: string,
+    fn: (c: EditTrackClip) => EditTrackClip,
+    key: string | null,
+  ): void => {
+    update(
+      (p) => ({
+        ...p,
+        tracks: p.tracks.map((t) =>
+          t.id !== trackId ? t : { ...t, clips: t.clips.map((c) => (c.id === clipId ? fn(c) : c)) },
+        ),
+      }),
+      key,
+    );
+  };
+  const addTrack = (kind: EditTrack['kind']): void => {
+    update((p) => {
+      if (p.tracks.length >= 20) return p;
+      const n = p.tracks.filter((t) => t.kind === kind).length + 1;
+      const name = `${kind === 'video' ? '영상' : '오디오'} ${String(n)}`;
+      return {
+        ...p,
+        tracks: [...p.tracks, { id: crypto.randomUUID(), kind, name, enabled: true, clips: [] }],
+      };
+    });
+  };
+  const removeTrack = (trackId: string): void => {
+    update((p) => ({ ...p, tracks: p.tracks.filter((t) => t.id !== trackId) }));
+    if (selTrack?.trackId === trackId) setSelTrack(null);
+  };
+  const toggleTrack = (trackId: string): void => {
+    update((p) => ({
+      ...p,
+      tracks: p.tracks.map((t) => (t.id === trackId ? { ...t, enabled: !t.enabled } : t)),
+    }));
+  };
+  const removeTrackClip = (sel: TrackSel): void => {
+    update((p) => ({
+      ...p,
+      tracks: p.tracks.map((t) =>
+        t.id !== sel.trackId ? t : { ...t, clips: t.clips.filter((c) => c.id !== sel.clipId) },
+      ),
+    }));
+    setSelTrack(null);
+  };
+  const selectTrackClip = (sel: TrackSel): void => {
+    setSelTrack(sel);
+    setSelectedClip(null);
+    setPicked(new Set());
+    setPanel('clip');
+  };
+  /** 파일을 골라 재생 헤드 위치부터 트랙에 차례로 놓는다. 이미지는 5초로 놓는다. */
+  const addTrackMedia = async (
+    trackId: string,
+    kind: 'video' | 'image' | 'audio',
+  ): Promise<void> => {
+    const picked = await libraryApi.editPickMedia(kind);
+    if (!picked) return;
+    let at = playhead;
+    const added: EditTrackClip[] = [];
+    for (const path of picked.paths) {
+      const info = await libraryApi.editProbe(path);
+      if (!info) continue;
+      const isImage = info.kind === 'image';
+      if (kind === 'image' && !isImage) {
+        notify('error', `${info.fileName}: 이미지 파일이 아닙니다`);
+        continue;
+      }
+      if (kind === 'audio' && !info.hasAudio) {
+        notify('error', `${info.fileName}: 음성이 없어 오디오 트랙에 넣을 수 없습니다`);
+        continue;
+      }
+      if (kind === 'video' && (!info.hasVideo || isImage)) {
+        notify('error', `${info.fileName}: 영상 파일이 아닙니다 (이미지는 "+ 이미지"로 넣습니다)`);
+        continue;
+      }
+      if (!isImage && !(info.durationSec !== null && info.durationSec > 0)) {
+        notify('error', `${info.fileName}: 길이를 알 수 없습니다`);
+        continue;
+      }
+      const srcDur = isImage ? 86_400 : (info.durationSec ?? 0);
+      const len = isImage ? 5 : srcDur;
+      added.push({
+        id: crypto.randomUUID(),
+        path: info.path,
+        fileName: info.fileName,
+        kind: isImage ? 'image' : kind === 'audio' ? 'audio' : 'video',
+        sourceDurationSec: srcDur,
+        sourceWidth: info.width ?? 0,
+        sourceHeight: info.height ?? 0,
+        hasAudio: !isImage && info.hasAudio,
+        startSec: at,
+        inSec: 0,
+        outSec: len,
+        volume: 1,
+        mute: false,
+        x: 0.5,
+        y: 0.5,
+        scale: isImage ? 0.25 : 0.4,
+        opacity: 1,
+        anim: { x: [], y: [], scale: [], opacity: [], volume: [] },
+      });
+      at += len;
+    }
+    if (added.length === 0) return;
+    update((p) => ({
+      ...p,
+      tracks: p.tracks.map((t) => (t.id === trackId ? { ...t, clips: [...t.clips, ...added] } : t)),
+    }));
+    const first = added[0];
+    if (first) selectTrackClip({ trackId, clipId: first.id });
+  };
+
   // ----- 구간 선택·삭제, 다중 선택, 트림, 재생 헤드 (모두 실행 취소 가능) -----
   const range: TimeRange | null = rangeSel ? normalizeRange(rangeSel.a, rangeSel.b, total) : null;
   const clearSelection = (): void => {
@@ -513,13 +658,21 @@ export function VideoEditorPage(): ReactNode {
   const setOutPoint = (): void => setRangeSel((r) => ({ a: r?.a ?? playhead, b: playhead }));
   const cutRange = (): void => {
     if (!range) return;
-    update((p) => ({ ...p, clips: cutOut(p.clips, range, () => crypto.randomUUID()) }));
+    update((p) => ({
+      ...p,
+      clips: cutOut(p.clips, range, () => crypto.randomUUID()),
+      tracks: cutOutTracks(p.tracks, range, () => crypto.randomUUID()),
+    }));
     setRangeSel(null);
     setPlayhead(range.startSec);
   };
   const keepRange = (): void => {
     if (!range) return;
-    update((p) => ({ ...p, clips: keepOnly(p.clips, range, () => crypto.randomUUID()) }));
+    update((p) => ({
+      ...p,
+      clips: keepOnly(p.clips, range, () => crypto.randomUUID()),
+      tracks: keepOnlyTracks(p.tracks, range, () => crypto.randomUUID()),
+    }));
     setRangeSel(null);
     setPlayhead(0);
   };
@@ -534,6 +687,10 @@ export function VideoEditorPage(): ReactNode {
       cutRange();
       return;
     }
+    if (selTrack) {
+      removeTrackClip(selTrack);
+      return;
+    }
     if (picked.size > 0) {
       removeClips(picked);
       return;
@@ -546,7 +703,8 @@ export function VideoEditorPage(): ReactNode {
     const t = r ? (clientX - r.left) / pxPerSec : 0;
     return Math.min(total, Math.max(0, t));
   };
-  const snapped = (t: number): number => snapTime(t, boundaryTimes(clips), 6 / pxPerSec);
+  const snapped = (t: number): number =>
+    snapTime(t, [...boundaryTimes(clips), ...trackBoundaryTimes(tracks)], 6 / pxPerSec);
   /** 포인터를 붙잡지 않는다. 붙잡으면 클릭이 클립이 아니라 바깥 요소로 가서 선택이 깨진다. */
   const beginDrag = (d: DragState): void => {
     setPlaying(false);
@@ -565,6 +723,28 @@ export function VideoEditorPage(): ReactNode {
   const onPointerMove = (x: number): void => {
     const d = dragRef.current;
     if (!d) return;
+    if (d.kind === 'tmove' || d.kind === 'ttrim') {
+      const dx = x - d.startX;
+      if (!d.moved && Math.abs(dx) < 3) return;
+      d.moved = true;
+      if (d.kind === 'tmove') {
+        // 끌고 있는 클립 자신의 경계에는 붙지 않게 뺀다
+        const others = tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => c.id !== d.id) }));
+        const points = [...boundaryTimes(clips), ...trackBoundaryTimes(others), playhead];
+        const ns = snapTime(d.base.startSec + dx / pxPerSec, points, 6 / pxPerSec);
+        updateTrackClip(d.trackId, d.id, (c) => moveTrackClip(c, ns), `tmove:${d.id}`);
+      } else {
+        const base = d.base;
+        const edge = d.edge;
+        updateTrackClip(
+          d.trackId,
+          d.id,
+          () => trimTrackClip(base, edge, dx / pxPerSec),
+          `ttrim:${d.id}:${d.edge}`,
+        );
+      }
+      return;
+    }
     if (d.kind === 'trim') {
       const delta = (x - d.startX) / pxPerSec;
       update(
@@ -698,6 +878,12 @@ export function VideoEditorPage(): ReactNode {
 
   const at = locate(clips, playhead);
   const selClip = clips.find((c) => c.id === selectedClip) ?? null;
+  const selTrackInfo = (() => {
+    if (!selTrack) return null;
+    const track = tracks.find((t) => t.id === selTrack.trackId);
+    const clip = track?.clips.find((c) => c.id === selTrack.clipId);
+    return track && clip ? { track, clip } : null;
+  })();
   const rendering = render?.status === 'running';
 
   return (
@@ -899,6 +1085,14 @@ export function VideoEditorPage(): ReactNode {
                   고른 클립 {picked.size}개 삭제
                 </Button>
               )}
+              <span className="ml-auto flex gap-1">
+                <Button onClick={() => addTrack('video')} disabled={tracks.length >= 20}>
+                  + 영상 트랙
+                </Button>
+                <Button onClick={() => addTrack('audio')} disabled={tracks.length >= 20}>
+                  + 오디오 트랙
+                </Button>
+              </span>
             </div>
             <div
               className="overflow-x-auto rounded border border-[var(--c-border)] bg-[var(--c-surface-2)]"
@@ -949,17 +1143,6 @@ export function VideoEditorPage(): ReactNode {
                     update((p) => reorderClip(p, from, to));
                   }}
                 >
-                  {range && (
-                    <div
-                      className="pointer-events-none absolute top-0 h-full"
-                      style={{
-                        left: range.startSec * pxPerSec,
-                        width: (range.endSec - range.startSec) * pxPerSec,
-                        background: 'rgba(59,130,246,0.25)',
-                      }}
-                      aria-hidden
-                    />
-                  )}
                   {clips.map((c, i) => {
                     const s = starts[i] ?? 0;
                     const d = clipDur(c);
@@ -1000,6 +1183,7 @@ export function VideoEditorPage(): ReactNode {
                             return;
                           }
                           setPicked(new Set());
+                          setSelTrack(null);
                           setSelectedClip(c.id);
                           setPanel('clip');
                         }}
@@ -1035,6 +1219,16 @@ export function VideoEditorPage(): ReactNode {
                             });
                           }}
                         />
+                        {c.hasAudio && !c.mute && (
+                          <Waveform
+                            path={c.path}
+                            fromSec={c.inSec}
+                            toSec={c.outSec}
+                            width={Math.max(24, d * pxPerSec)}
+                            height={22}
+                            className="bottom-0"
+                          />
+                        )}
                         <span className="truncate font-medium">{c.fileName}</span>
                         <span className="truncate">
                           {formatDuration(d)}
@@ -1048,12 +1242,57 @@ export function VideoEditorPage(): ReactNode {
                       </div>
                     );
                   })}
+                </div>
+                {project.music && (
+                  <MusicRow music={project.music} total={total} pxPerSec={pxPerSec} />
+                )}
+                <TrackRows
+                  tracks={tracks}
+                  pxPerSec={pxPerSec}
+                  selected={selTrack}
+                  onSelect={selectTrackClip}
+                  onBeginMove={(trackId, c, clientX) =>
+                    beginDrag({
+                      kind: 'tmove',
+                      trackId,
+                      id: c.id,
+                      base: c,
+                      startX: clientX,
+                      moved: false,
+                    })
+                  }
+                  onBeginTrim={(trackId, c, edge, clientX) =>
+                    beginDrag({
+                      kind: 'ttrim',
+                      trackId,
+                      id: c.id,
+                      edge,
+                      base: c,
+                      startX: clientX,
+                      moved: false,
+                    })
+                  }
+                  onAdd={(trackId, kind) => void addTrackMedia(trackId, kind)}
+                  onToggle={toggleTrack}
+                  onRemove={removeTrack}
+                />
+                {/* 모든 행에 걸친 구간 표시와 재생 헤드 */}
+                {range && (
                   <div
-                    className="pointer-events-none absolute top-0 h-full w-0.5 bg-[var(--c-danger)]"
-                    style={{ left: Math.min(playhead, total) * pxPerSec }}
+                    className="pointer-events-none absolute bottom-0 top-6 z-10"
+                    style={{
+                      left: range.startSec * pxPerSec,
+                      width: (range.endSec - range.startSec) * pxPerSec,
+                      background: 'rgba(59,130,246,0.25)',
+                    }}
                     aria-hidden
                   />
-                </div>
+                )}
+                <div
+                  className="pointer-events-none absolute bottom-0 top-0 z-30 w-0.5 bg-[var(--c-danger)]"
+                  style={{ left: Math.min(playhead, total) * pxPerSec }}
+                  aria-hidden
+                />
               </div>
             </div>
           </div>
@@ -1086,7 +1325,24 @@ export function VideoEditorPage(): ReactNode {
           </div>
 
           {panel === 'clip' &&
-            (current ? (
+            (selTrackInfo ? (
+              <TrackClipPanel
+                key={selTrackInfo.clip.id}
+                track={selTrackInfo.track}
+                clip={selTrackInfo.clip}
+                playhead={playhead}
+                onChange={(fn, key) =>
+                  updateTrackClip(selTrackInfo.track.id, selTrackInfo.clip.id, fn, key)
+                }
+                onRemove={() =>
+                  removeTrackClip({ trackId: selTrackInfo.track.id, clipId: selTrackInfo.clip.id })
+                }
+                onSeek={(t) => {
+                  setPlaying(false);
+                  setPlayhead(t);
+                }}
+              />
+            ) : current ? (
               <ClipPanel
                 clip={current}
                 index={clips.findIndex((c) => c.id === current.id)}

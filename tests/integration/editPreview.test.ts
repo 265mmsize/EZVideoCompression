@@ -52,3 +52,40 @@ describe('미리보기 재생 주소', () => {
     expect(() => ws.services.videoEdit.mediaUrl(ws.inputDir)).toThrow();
   });
 });
+
+describe('오디오 파형', () => {
+  it('음성이 있는 3초 영상은 초당 50개 피크를 내고 소리가 있는 칸이 있다', async () => {
+    const video = path.join(ws.inputDir, '파형 영상.mp4');
+    fs.copyFileSync(ws.fixtures['h264_sdr.mp4'], video);
+    const w = await ws.services.videoEdit.waveform(video);
+    expect(w.peaksPerSec).toBe(50);
+    expect(w.peaks.length).toBeGreaterThanOrEqual(140);
+    expect(w.peaks.length).toBeLessThanOrEqual(160);
+    expect(Math.max(...w.peaks)).toBeGreaterThan(0);
+    expect(w.peaks.every((v) => Number.isInteger(v) && v >= 0 && v <= 100)).toBe(true);
+    // 두 번째 요청은 캐시에서 같은 결과
+    expect(await ws.services.videoEdit.waveform(video)).toBe(w);
+  });
+
+  it('음성이 없는 영상은 빈 파형', async () => {
+    const silent = path.join(ws.inputDir, '무음.mp4');
+    const r = spawnSync(
+      process.env['FFMPEG_PATH'] ?? 'ffmpeg',
+      [
+        '-v',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc2=size=160x120:rate=10',
+        '-t',
+        '1',
+        silent,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(r.status).toBe(0);
+    expect((await ws.services.videoEdit.waveform(silent)).peaks).toEqual([]);
+  });
+});

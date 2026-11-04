@@ -24,7 +24,7 @@ export class EditProjectRepository {
       )
       .all() as unknown as Row[];
     return rows.map((r) => {
-      const p = JSON.parse(r.json) as EditProject;
+      const p = withDefaults(JSON.parse(r.json) as EditProject);
       const s = summarize(p);
       return {
         id: r.id,
@@ -39,7 +39,7 @@ export class EditProjectRepository {
   get(id: string): EditProject | null {
     const row = this.db.prepare('SELECT json FROM edit_projects WHERE id = ?').get(id) as
       { json: string } | undefined;
-    return row ? (JSON.parse(row.json) as EditProject) : null;
+    return row ? withDefaults(JSON.parse(row.json) as EditProject) : null;
   }
 
   insert(p: EditProject): void {
@@ -60,4 +60,9 @@ export class EditProjectRepository {
   delete(id: string): boolean {
     return Number(this.db.prepare('DELETE FROM edit_projects WHERE id = ?').run(id).changes) > 0;
   }
+}
+
+/** 이전 버전에서 저장한 프로젝트에는 없던 필드를 채운다 (추가 트랙: 1.14.0) */
+function withDefaults(p: EditProject): EditProject {
+  return Array.isArray((p as Partial<EditProject>).tracks) ? p : { ...p, tracks: [] };
 }

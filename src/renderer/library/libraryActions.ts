@@ -160,6 +160,14 @@ export const libraryApi = {
   editProbe: (path: string) => run('파일 확인', () => call('edit:source.probe', { path })),
   editPickMedia: (kind: 'video' | 'audio' | 'image') =>
     run('파일 선택', () => call('edit:pickMedia', { kind })),
+  /** 오디오 파형 피크. 실패하면 null */
+  editWaveform: async (path: string): Promise<{ peaksPerSec: number; peaks: number[] } | null> => {
+    try {
+      return await call('edit:waveform', { path });
+    } catch {
+      return null;
+    }
+  },
   /** 실시간 미리보기용 재생 주소. 실패하면 null */
   editMediaUrl: async (path: string): Promise<string | null> => {
     try {

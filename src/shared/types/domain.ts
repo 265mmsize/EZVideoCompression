@@ -832,6 +832,62 @@ export interface EditWatermark {
   opacity: number;
 }
 
+/** 추가 트랙: 영상(오버레이·이미지) 또는 오디오. 메인 트랙 위에 시간 위치를 자유롭게 정해 놓는다. */
+export const TRACK_KINDS = ['video', 'audio'] as const;
+export type TrackKind = (typeof TRACK_KINDS)[number];
+export const TRACK_CLIP_KINDS = ['video', 'audio', 'image'] as const;
+export type TrackClipKind = (typeof TRACK_CLIP_KINDS)[number];
+
+/** 키프레임으로 바꿀 수 있는 속성 */
+export const ANIM_PROPS = ['x', 'y', 'scale', 'opacity', 'volume'] as const;
+export type AnimProp = (typeof ANIM_PROPS)[number];
+
+export interface EditKeyframe {
+  /** 클립 안 시간 (초, 클립 시작 = 0) */
+  t: number;
+  v: number;
+}
+
+export type EditAnim = Record<AnimProp, EditKeyframe[]>;
+
+export interface EditTrackClip {
+  id: string;
+  path: string;
+  fileName: string;
+  kind: TrackClipKind;
+  /** 원본 길이. 이미지는 길게 잡아 두고 사용 구간으로 표시 시간을 정한다 */
+  sourceDurationSec: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  hasAudio: boolean;
+  /** 타임라인 시작 위치 (초) */
+  startSec: number;
+  /** 원본 기준 사용 구간 (초). 추가 트랙 클립은 배속을 쓰지 않는다 */
+  inSec: number;
+  outSec: number;
+  /** 0 ~ 2 */
+  volume: number;
+  mute: boolean;
+  /** 화면 위치: 캔버스 대비 가운데 좌표 (0~1) */
+  x: number;
+  y: number;
+  /** 캔버스 너비 대비 너비 */
+  scale: number;
+  /** 0 ~ 1 */
+  opacity: number;
+  /** 속성별 키프레임. 비어 있으면 위의 고정 값을 쓴다 */
+  anim: EditAnim;
+}
+
+export interface EditTrack {
+  id: string;
+  kind: TrackKind;
+  name: string;
+  /** 끄면 렌더·미리보기에서 빠진다 */
+  enabled: boolean;
+  clips: EditTrackClip[];
+}
+
 export interface EditOutput {
   container: OutputContainer;
   codec: VideoCodec;
@@ -849,6 +905,8 @@ export interface EditProject {
   watermark: EditWatermark | null;
   canvas: { preset: CanvasPreset; fps: EditFps };
   output: EditOutput;
+  /** 추가 트랙 (아래에서 위 순서로 겹친다). 이전 버전 프로젝트에는 없을 수 있어 불러올 때 빈 배열로 채운다 */
+  tracks: EditTrack[];
   createdAt: string;
   updatedAt: string;
 }

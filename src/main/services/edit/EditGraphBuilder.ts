@@ -12,6 +12,7 @@
  * 모든 숫자는 소수 셋째 자리로 고정해 테스트에서 문자열 비교가 가능하게 한다.
  */
 import { evenSize as even, type Canvas } from '../../../shared/editCanvas';
+import { keyframeExpr, trackClipDur } from '../../../shared/keyframes';
 import type {
   EditClip,
   EditProject,
@@ -330,6 +331,84 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
     chains.push('[acm][am]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]');
     aout = 'aout';
     notes.push(`배경 음악: ${m.fileName} (원본 음성 ${String(Math.round(m.originalMix * 100))}%)`);
+  }
+
+  // ----- 추가 트랙: 영상·이미지 오버레이와 오디오 (메인 트랙 길이 안에서만) -----
+  // 오버레이: 시작 위치로 시간 축을 옮기고, 투명도 → 크기 → 위치 순으로 적용한다.
+  // 크기가 프레임마다 바뀐 뒤에 geq 를 두면 FFmpeg 가 비정상 종료하므로 투명도를 먼저 처리한다.
+  const trackAudio: string[] = [];
+  let ovIndex = 0;
+  for (const track of project.tracks) {
+    if (!track.enabled) continue;
+    for (const tc of track.clips) {
+      const start = tc.startSec;
+      const dur = Math.min(trackClipDur(tc), total - start);
+      if (start >= total || dur <= 0.01) continue;
+      const ii = inputs.length;
+      if (tc.kind === 'image') {
+        inputs.push([
+          '-loop',
+          '1',
+          '-framerate',
+          String(canvas.fps),
+          '-t',
+          fix3(dur),
+          '-i',
+          tc.path,
+        ]);
+      } else {
+        inputs.push(['-ss', fix3(tc.inSec), '-t', fix3(dur), '-i', tc.path]);
+      }
+      const local = `(t-${fix3(start)})`;
+      if (track.kind === 'video' && tc.kind !== 'audio') {
+        const lbl = `ov${String(ovIndex)}`;
+        const out = `vt${String(ovIndex)}`;
+        ovIndex++;
+        const f: string[] = [`setpts=PTS-STARTPTS+${fix3(start)}/TB`, 'format=rgba'];
+        if (tc.anim.opacity.length > 0) {
+          const op = keyframeExpr(tc.anim.opacity, tc.opacity, `(T-${fix3(start)})`);
+          f.push(`geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*clip(${op},0,1)'`);
+        } else if (tc.opacity < 1) {
+          f.push(`colorchannelmixer=aa=${fix3(tc.opacity)}`);
+        }
+        if (tc.anim.scale.length > 0) {
+          const sc = keyframeExpr(tc.anim.scale, tc.scale, local);
+          f.push(
+            `scale=w='max(2,trunc(${String(canvas.width)}*(${sc})/2)*2)':h=-2:eval=frame:flags=bilinear`,
+          );
+        } else {
+          f.push(`scale=${String(even(canvas.width * tc.scale))}:-2:flags=lanczos`);
+        }
+        chains.push(`[${String(ii)}:v]${f.join(',')}[${lbl}]`);
+        const xe = `main_w*(${keyframeExpr(tc.anim.x, tc.x, local)})-overlay_w/2`;
+        const ye = `main_h*(${keyframeExpr(tc.anim.y, tc.y, local)})-overlay_h/2`;
+        chains.push(
+          `[${vcur}][${lbl}]overlay=x='${xe}':y='${ye}':eval=frame:enable='between(t,${fix3(start)},${fix3(start + dur)})':eof_action=pass:format=auto[${out}]`,
+        );
+        vcur = out;
+        notes.push(`${track.name}: ${tc.fileName} (${fix3(start)}초부터 ${fix3(dur)}초)`);
+      }
+      if (tc.kind !== 'image' && tc.hasAudio && !tc.mute) {
+        const al = `ta${String(trackAudio.length)}`;
+        const vol =
+          tc.anim.volume.length > 0
+            ? `volume='${keyframeExpr(tc.anim.volume, tc.volume, 't')}':eval=frame`
+            : `volume=${fix3(tc.volume)}`;
+        const ms = String(Math.round(start * 1000));
+        chains.push(
+          `[${String(ii)}:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,${vol},adelay=${ms}:all=1[${al}]`,
+        );
+        trackAudio.push(al);
+        if (track.kind === 'audio')
+          notes.push(`${track.name}: ${tc.fileName} (${fix3(start)}초부터)`);
+      }
+    }
+  }
+  if (trackAudio.length > 0) {
+    chains.push(
+      `[${aout}]${trackAudio.map((l) => `[${l}]`).join('')}amix=inputs=${String(trackAudio.length + 1)}:duration=first:dropout_transition=0:normalize=0[atr]`,
+    );
+    aout = 'atr';
   }
 
   // ----- 워터마크 -----

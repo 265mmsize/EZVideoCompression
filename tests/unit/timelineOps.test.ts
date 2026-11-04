@@ -1,11 +1,16 @@
 /** 타임라인 편집 계산: 구간 잘라내기, 구간만 남기기, 트림, 스냅 */
 import { describe, expect, it } from 'vitest';
-import type { EditClip } from '../../src/shared/types/domain';
+import type { EditClip, EditTrack, EditTrackClip } from '../../src/shared/types/domain';
 import { layout, clipDur } from '../../src/renderer/pages/editOps';
 import {
   boundaryTimes,
   cutOut,
+  cutOutTracks,
   keepOnly,
+  keepOnlyTracks,
+  moveTrackClip,
+  trackBoundaryTimes,
+  trimTrackClip,
   moveTime,
   normalizeRange,
   snapTime,
@@ -151,5 +156,83 @@ describe('스냅과 재생 헤드', () => {
     expect(moveTime(0.5, 10, -1)).toBe(0);
     expect(moveTime(9.5, 10, 1)).toBe(10);
     expect(moveTime(5, 10, 0.5)).toBe(5.5);
+  });
+});
+
+describe('추가 트랙 편집', () => {
+  function tclip(over: Partial<EditTrackClip> = {}): EditTrackClip {
+    return {
+      id: 't1',
+      path: '/v/o.mp4',
+      fileName: 'o.mp4',
+      kind: 'video',
+      sourceDurationSec: 100,
+      sourceWidth: 640,
+      sourceHeight: 360,
+      hasAudio: true,
+      startSec: 2,
+      inSec: 10,
+      outSec: 16,
+      volume: 1,
+      mute: false,
+      x: 0.5,
+      y: 0.5,
+      scale: 0.4,
+      opacity: 1,
+      anim: {
+        x: [
+          { t: 1, v: 0.1 },
+          { t: 5, v: 0.9 },
+        ],
+        y: [],
+        scale: [],
+        opacity: [],
+        volume: [],
+      },
+      ...over,
+    };
+  }
+  const track = (clips: EditTrackClip[]): EditTrack[] => [
+    { id: 'tr', kind: 'video', name: '영상 1', enabled: true, clips },
+  ];
+
+  it('구간 뒤의 트랙 클립은 구간 길이만큼 당겨진다', () => {
+    const out = cutOutTracks(track([tclip({ startSec: 10 })]), { startSec: 2, endSec: 5 }, newId);
+    expect(out[0]?.clips[0]?.startSec).toBe(7);
+  });
+
+  it('걸친 클립은 앞·뒤 조각이 되고 키프레임이 따라간다', () => {
+    // 클립은 타임라인 2~8초. 4~5초를 자르면 앞 2초(원본 10~12), 뒤 3초(원본 13~16)가 4초부터 이어진다
+    const out = cutOutTracks(track([tclip()]), { startSec: 4, endSec: 5 }, newId)[0]?.clips ?? [];
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ id: 't1', startSec: 2, inSec: 10, outSec: 12 });
+    expect(out[0]?.anim.x).toEqual([{ t: 1, v: 0.1 }]);
+    expect(out[1]).toMatchObject({ startSec: 4, inSec: 13, outSec: 16 });
+    // 원래 5초 키프레임은 뒤 조각 안에서 2초
+    expect(out[1]?.anim.x).toEqual([{ t: 2, v: 0.9 }]);
+  });
+
+  it('구간만 남기면 구간 밖 트랙 클립은 사라지고 남은 것은 0초 기준으로 옮겨진다', () => {
+    const out = keepOnlyTracks(
+      track([tclip(), tclip({ id: 't2', startSec: 20, inSec: 0, outSec: 2 })]),
+      { startSec: 3, endSec: 6 },
+      newId,
+    )[0]?.clips;
+    expect(out).toHaveLength(1);
+    expect(out?.[0]).toMatchObject({ startSec: 0, inSec: 11, outSec: 14 });
+  });
+
+  it('시작을 줄이면 위치도 같이 움직이고 키프레임은 당겨진다, 끝은 원본 안에서만', () => {
+    const t = trimTrackClip(tclip(), 'in', 2);
+    expect(t).toMatchObject({ startSec: 4, inSec: 12, outSec: 16 });
+    expect(t.anim.x).toEqual([{ t: 3, v: 0.9 }]);
+    expect(trimTrackClip(tclip(), 'in', -50)).toMatchObject({ startSec: 0, inSec: 8 });
+    expect(trimTrackClip(tclip(), 'out', 500).outSec).toBe(100);
+    expect(trimTrackClip(tclip(), 'out', -50).outSec).toBeCloseTo(10.2, 6);
+  });
+
+  it('이동은 0 이전으로 가지 않고, 경계 시각을 스냅 기준점으로 준다', () => {
+    expect(moveTrackClip(tclip(), -3).startSec).toBe(0);
+    expect(trackBoundaryTimes(track([tclip()]))).toEqual([2, 8]);
   });
 });
