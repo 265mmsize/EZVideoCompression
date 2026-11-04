@@ -217,4 +217,4 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
 - 통합 (실제 FFmpeg, `tests/integration/audioClean.test.ts`): 가운데 소리만 있는 파일의 "보컬 줄이기" 결과 -50dB 아래, 한쪽 소리 파일은 줄이기 후 약 3dB 증가, 가운데 남기기 후 약 3dB 감소, 가운데 소리는 남기기에서 변하지 않음, 모노 원본은 옵션을 지정해도 결과가 같음.
 - E2E (`tests/e2e/audioClean.spec.ts`): 잡음 줄이기 선택 상자의 기본값과 변경, 보컬 처리 선택 상자 표시, 미리보기 제외 안내 문구.
 - 확인하지 않은 것: 실제 음악·목소리 녹음에서의 잡음 줄이기 음질, 보컬 처리의 실제 청감, 미리보기 소리와 내보내기 소리의 차이, 실제 Windows 실행.
-- 패키징: `xvfb-run -a npm run pack:win` 과 `npm run verify:win` 결과는 커밋 후 기록한다.
+- 패키징: `xvfb-run -a npm run pack:win` 으로 1.18.0 설치 파일과 포터블 파일을 만들었고 `npm run verify:win` 이 통과했다. 실제 설치와 실행은 Windows 11 에서 확인해야 한다.
