@@ -64,6 +64,7 @@ import { ClipThumbs } from './ClipThumbs';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { copyOf, freezeAt } from './clipEdits';
 import { clipLabel, maxFadeSec } from '../../shared/clipTime';
+import { vocalAvailability } from '../../shared/audioClean';
 import { notify } from '../stores/appStore';
 import { useAppStore } from '../hooks/useAppStore';
 
@@ -406,6 +407,9 @@ export function VideoEditorPage(): ReactNode {
         sourceHeight: info.height ?? 720,
         hasAudio: info.hasAudio,
         hdr: info.hdr,
+        audioChannels: info.audioChannels,
+        noiseReduce: 'off',
+        vocal: 'off',
         bitDepth: info.bitDepth,
         inSec: 0,
         outSec: info.durationSec,
@@ -1870,6 +1874,43 @@ function ClipPanel({
         value={clip.fadeOutSec ?? 0}
         onChange={(v) => onChange({ fadeOutSec: v })}
       />
+      <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">소리 정리</h4>
+      <label className="mt-1 flex items-center justify-between gap-2 text-xs">
+        잡음 줄이기
+        <select
+          aria-label="잡음 줄이기"
+          className="rounded border border-[var(--c-border)] bg-[var(--c-surface)] px-1 py-0.5"
+          value={clip.noiseReduce ?? 'off'}
+          onChange={(e) => onChange({ noiseReduce: e.target.value as 'off' | 'light' | 'strong' })}
+        >
+          <option value="off">끔</option>
+          <option value="light">약하게</option>
+          <option value="strong">강하게</option>
+        </select>
+      </label>
+      <label className="mt-1 flex items-center justify-between gap-2 text-xs">
+        보컬 (좌우 채널)
+        <select
+          aria-label="보컬 처리"
+          className="rounded border border-[var(--c-border)] bg-[var(--c-surface)] px-1 py-0.5"
+          value={clip.vocal ?? 'off'}
+          disabled={!vocalAvailability(clip.audioChannels).ok}
+          onChange={(e) => onChange({ vocal: e.target.value as 'off' | 'reduce' | 'isolate' })}
+        >
+          <option value="off">그대로</option>
+          <option value="reduce">보컬 줄이기 (가라오케)</option>
+          <option value="isolate">가운데만 남기기 (보컬 위주)</option>
+        </select>
+      </label>
+      {!vocalAvailability(clip.audioChannels).ok && (
+        <p className="text-[10px] text-[var(--c-muted)]">
+          {vocalAvailability(clip.audioChannels).reason}. 보컬 처리는 스테레오 원본에서만 됩니다.
+        </p>
+      )}
+      <p className="text-[10px] text-[var(--c-muted)]">
+        소리 정리는 내보내기에만 반영되고, 미리보기에는 반영되지 않습니다. 잡음 줄이기는 음성 전체에
+        걸쳐 같은 강도로 적용되므로 목소리가 얇아질 수 있습니다.
+      </p>
       <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">속도·음성</h4>
       <Range
         label="속도 (배)"

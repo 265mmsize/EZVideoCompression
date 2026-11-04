@@ -14,6 +14,7 @@
 import { evenSize as even, type Canvas } from '../../../shared/editCanvas';
 import { TONEMAP_FILTERS } from './sourceColor';
 import { clipDuration, FREEZE_FRAME_SEC } from '../../../shared/clipTime';
+import { audioCleanFilters } from '../../../shared/audioClean';
 import { hardwareEncodeArgs } from '../HardwareEncoderService';
 import {
   hasZoomPan,
@@ -312,6 +313,8 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
       const a = [
         'asetpts=PTS-STARTPTS',
         ...atempoChain(c.speed),
+        // 소리 정리: 보컬 채널 연산 → 잡음 줄이기 (볼륨 전에 적용)
+        ...audioCleanFilters(c),
         volKeys.length > 0
           ? `volume='${keyframeExpr(volKeys, c.volume, 't')}':eval=frame`
           : `volume=${fix3(c.volume)}`,

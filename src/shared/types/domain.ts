@@ -817,6 +817,11 @@ export interface EditClip {
   /** 시작·끝 페이드 (초, 영상과 소리 함께). 없으면 0 */
   fadeInSec?: number;
   fadeOutSec?: number;
+  /** 소리 정리: 잡음 줄이기 정도와 보컬 처리 (보컬은 스테레오 원본에서만 적용) */
+  noiseReduce?: 'off' | 'light' | 'strong';
+  vocal?: 'off' | 'reduce' | 'isolate';
+  /** 원본 음성 채널 수 (등록할 때 기록) */
+  audioChannels?: number | null;
   /** 프레임 고정: 원본의 한 프레임을 stillSec 동안 멈춰 보여 준다 (소리 없음) */
   still?: boolean;
   stillSec?: number;
@@ -970,6 +975,8 @@ export interface EditSourceInfo {
   height: number | null;
   hasAudio: boolean;
   hasVideo: boolean;
+  /** 첫 음성 트랙의 채널 수 (없으면 null) */
+  audioChannels: number | null;
   /** HDR 전송 특성(PQ·HLG) 영상인지 */
   hdr: boolean;
   /** 영상 비트 깊이 (모르면 null) */

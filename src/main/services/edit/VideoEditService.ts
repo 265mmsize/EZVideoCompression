@@ -216,6 +216,7 @@ export class VideoEditService {
       height: v?.height ?? null,
       hasAudio: a !== null,
       hasVideo: v !== null,
+      audioChannels: a?.channels ?? null,
       hdr: isHdrTransfer(v?.colorTransfer),
       bitDepth: v?.bitDepth ?? null,
     };
