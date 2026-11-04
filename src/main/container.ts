@@ -190,6 +190,7 @@ export function createServices(opts: ContainerOptions): AppServices {
     emit: (p) => opts.emit('edit:render.progress', p),
     indexFile: (p) => library.indexFile(p),
     fontFile: () => findDefaultFont(),
+    hardwareStatuses: () => status?.hardwareEncoders ?? [],
   });
   const clipCut = new ClipCutService({
     get: (id) => library.get(id),

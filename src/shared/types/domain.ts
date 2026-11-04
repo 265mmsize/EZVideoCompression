@@ -809,6 +809,9 @@ export interface EditClip {
   texts: EditTextOverlay[];
   /** 확대·이동(켄번스)·음량 키프레임. 클립 안 시간(속도 적용 후) 기준. 없으면 움직이지 않는다 */
   motion?: EditClipMotion;
+  /** 원본이 HDR 인지, 비트 깊이 (클립을 넣을 때 기록. 내보내기 때 다시 확인한다) */
+  hdr?: boolean;
+  bitDepth?: number | null;
 }
 
 /** 메인 클립 키프레임 속성: 확대(1 이상), 화면 초점(0~1, 0.5 = 가운데), 음량 */
@@ -916,6 +919,15 @@ export interface EditOutput {
   preset: (typeof EDIT_PRESETS)[number];
   /** 내보내기에서 음성 제외 (영상만). 이전에 저장된 프로젝트에는 없을 수 있다. */
   noAudio?: boolean;
+  /**
+   * HDR·10비트 원본을 SDR 8비트로 바꿔 내보내는 데 동의했는지. 동의하지 않으면 그런 원본이 있을 때
+   * 내보내기를 막는다 (조용한 HDR→SDR, 10→8비트 변환 금지 원칙).
+   */
+  hdrToSdr?: boolean;
+  /** 클립 사이 음량 맞춤 (EBU R128, 클립마다 -16 LUFS) */
+  normalizeAudio?: boolean;
+  /** 하드웨어 인코더 사용 (실패하면 CPU 인코더로 다시 렌더한다) */
+  hardware?: boolean;
 }
 
 export interface EditProject {
@@ -950,6 +962,10 @@ export interface EditSourceInfo {
   height: number | null;
   hasAudio: boolean;
   hasVideo: boolean;
+  /** HDR 전송 특성(PQ·HLG) 영상인지 */
+  hdr: boolean;
+  /** 영상 비트 깊이 (모르면 null) */
+  bitDepth: number | null;
 }
 
 export type EditRenderMode = 'proxy' | 'export';

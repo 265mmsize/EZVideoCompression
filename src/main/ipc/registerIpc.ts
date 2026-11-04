@@ -262,6 +262,10 @@ export function registerIpc(deps: IpcDeps): void {
     },
     'edit:frame': ({ path, timeSec }) => s.videoEdit.frame(path, timeSec),
     'edit:mediaUrl': ({ path }) => s.videoEdit.mediaUrl(path),
+    'edit:lossless.check': ({ projectId }) => s.videoEdit.losslessCheck(projectId),
+    'edit:lossless.merge': ({ projectId, target }) => ({
+      renderId: s.videoEdit.losslessMerge(projectId, target),
+    }),
     'edit:waveform': ({ path }) => s.videoEdit.waveform(path),
     'edit:render': ({ projectId, mode, target }) => ({
       renderId: s.videoEdit.render(projectId, mode, target),

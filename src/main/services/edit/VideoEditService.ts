@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type {
+  HardwareEncoderStatus,
   EditProject,
   EditProjectSummary,
   EditRenderMode,
@@ -35,6 +36,20 @@ import type { MediaProbeService } from '../MediaProbeService';
 import { ProgressEstimator } from '../ProgressEstimator';
 import { mimeOf, type MediaTokenRegistry } from '../library/MediaTokenRegistry';
 import {
+  compatibilityReasons,
+  losslessArgs,
+  losslessProjectBlockers,
+  signatureOf,
+  type StreamSignature,
+} from './losslessMerge';
+import { buildConcatListText } from '../library/ClipCutService';
+import {
+  conversionWarnings,
+  isHdrTransfer,
+  supportsTonemap,
+  type SourceColor,
+} from './sourceColor';
+import {
   computePeaks,
   WAVE_MAX_SEC,
   WAVE_PEAKS_PER_SEC,
@@ -46,6 +61,7 @@ import {
   buildRenderPlan,
   clipDurationSec,
   outputArgs,
+  type EditHwEncoder,
   projectDurationSec,
   proxyCanvas,
   resolveCanvas,
@@ -69,6 +85,8 @@ export interface VideoEditDeps {
   indexFile: (filePath: string) => Promise<string | null>;
   /** drawtext 글꼴 파일 탐색 (null = fontconfig) */
   fontFile: () => string | null;
+  /** 하드웨어 인코더 검사 결과 (도구 확인 때 채워진다) */
+  hardwareStatuses: () => HardwareEncoderStatus[];
   now?: () => Date;
 }
 
@@ -198,10 +216,159 @@ export class VideoEditService {
       height: v?.height ?? null,
       hasAudio: a !== null,
       hasVideo: v !== null,
+      hdr: isHdrTransfer(v?.colorTransfer),
+      bitDepth: v?.bitDepth ?? null,
     };
   }
 
   /** 원본 파일의 시점 프레임 (효과 미적용). 썸네일 캐시를 쓴다 */
+  /** 무손실 합치기 가능 여부. 안 되면 이유를 모두 돌려준다 */
+  async losslessCheck(projectId: string): Promise<{ ok: boolean; reasons: string[] }> {
+    const p = this.get(projectId);
+    const reasons = losslessProjectBlockers(p);
+    if (reasons.length > 0) return { ok: false, reasons };
+    const sigs: StreamSignature[] = [];
+    for (const c of p.clips) {
+      if (!fs.existsSync(c.path)) return { ok: false, reasons: [`${c.fileName}: 파일이 없습니다`] };
+      sigs.push(signatureOf(c.fileName, c.path, await this.deps.probe.probe(c.path)));
+    }
+    const more = compatibilityReasons(sigs);
+    return { ok: more.length === 0, reasons: more };
+  }
+
+  /**
+   * 재인코딩 없이 파일을 이어 붙인다 (concat 분리기, -c copy). 진행은 렌더와 같은 이벤트로 알린다.
+   * 결과는 원본과 같은 형식이고, 원본은 읽기만 한다. 길이가 원본 합과 다르면 실패로 본다.
+   */
+  losslessMerge(projectId: string, target: ImageExportTarget | null): string {
+    const project = this.get(projectId);
+    const renderId = randomUUID();
+    const controller = new AbortController();
+    this.running.set(renderId, controller);
+    const tempDir = path.join(this.deps.tempRoot, `edit-${renderId}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+    const emit = (patch: Partial<EditRenderProgress>): void =>
+      this.deps.emit({
+        renderId,
+        projectId,
+        mode: 'export',
+        status: 'running',
+        stage: '준비',
+        ratio: null,
+        etaSec: null,
+        outputPath: null,
+        previewId: null,
+        error: null,
+        ...patch,
+      });
+    emit({ stage: '무손실 합치기 확인' });
+    void (async () => {
+      let temp = '';
+      try {
+        const check = await this.losslessCheck(projectId);
+        if (!check.ok) {
+          throw new AppError(
+            'INVALID_REQUEST',
+            `무손실로 합칠 수 없습니다.\n${check.reasons.join('\n')}`,
+          );
+        }
+        const first = project.clips[0] as EditProject['clips'][number];
+        const ext = (first.path.split('.').pop() ?? 'mp4').toLowerCase();
+        const outDir =
+          target?.kind === 'path' ? path.dirname(target.path) : path.dirname(first.path);
+        const baseName =
+          target?.kind === 'path'
+            ? path.parse(target.path).name
+            : sanitizeName(project.name) + (target?.suffix ?? '-merge');
+        if (!fs.existsSync(outDir))
+          throw new AppError('INVALID_REQUEST', `폴더가 없습니다: ${outDir}`);
+        temp = tempOutputPath(outDir, baseName, renderId, ext);
+        removeAppTempFile(temp);
+        const list = path.join(tempDir, 'concat.txt');
+        fs.writeFileSync(list, buildConcatListText(project.clips.map((c) => c.path)), 'utf8');
+        let expected = 0;
+        let hasAudio = true;
+        for (const c of project.clips) {
+          const pr = await this.deps.probe.probe(c.path);
+          expected += pr.durationSec.value ?? 0;
+          if (!pr.streams.some((s) => s.kind === 'audio')) hasAudio = false;
+        }
+        emit({ stage: '무손실 합치기 (재인코딩 없음)' });
+        const tools = this.deps.tools();
+        const res = await this.deps.proc.run(
+          tools.ffmpeg,
+          losslessArgs(list, temp, ext, hasAudio),
+          {
+            jobId: `edit-${renderId}`,
+            signal: controller.signal,
+            stallTimeoutMs: RENDER_STALL_MS,
+          },
+        );
+        if (res.cancelled) throw new AppError('CANCELLED');
+        if (res.exitCode !== 0 || !fs.existsSync(temp)) {
+          throw new AppError('ENCODE_FAILED', res.stderrTail.slice(-6).join('\n') || '합치기 실패');
+        }
+        emit({ stage: '검증', ratio: 1 });
+        const out = await this.deps.probe.probe(temp);
+        const got = out.durationSec.value ?? 0;
+        if (Math.abs(got - expected) > Math.max(0.5, expected * 0.01)) {
+          throw new AppError(
+            'VALIDATION_FAILED',
+            `합친 길이(${got.toFixed(2)}초)가 원본 합(${expected.toFixed(2)}초)과 다릅니다`,
+          );
+        }
+        const finalPath = resolveFinalPath(outDir, baseName, ext, first.path);
+        finalizeFile(temp, finalPath);
+        try {
+          await this.deps.indexFile(finalPath);
+        } catch (err) {
+          this.deps.logger.warn('indexing merge output failed', { finalPath, err: String(err) });
+        }
+        this.deps.logger.info('lossless merge done', {
+          renderId,
+          finalPath,
+          clips: project.clips.length,
+        });
+        emit({
+          status: 'done',
+          stage: '완료 (무손실)',
+          ratio: 1,
+          etaSec: 0,
+          outputPath: finalPath,
+        });
+      } catch (err) {
+        const app = AppError.from(err);
+        if (temp) removeAppTempFile(temp);
+        if (app.code === 'CANCELLED') emit({ status: 'cancelled', stage: '취소됨' });
+        else emit({ status: 'failed', stage: '실패', error: `${app.code}: ${app.detail ?? ''}` });
+      } finally {
+        this.running.delete(renderId);
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    })();
+    return renderId;
+  }
+
+  private tonemapOk: boolean | null = null;
+
+  /** 원본 영상의 HDR 여부와 비트 깊이 (첫 영상 트랙 기준) */
+  private async sourceColor(filePath: string): Promise<{ hdr: boolean; bitDepth: number | null }> {
+    const p = await this.deps.probe.probe(filePath);
+    const v = p.streams.find((s) => s.kind === 'video' && !s.isAttachedPic);
+    return { hdr: isHdrTransfer(v?.colorTransfer), bitDepth: v?.bitDepth ?? null };
+  }
+
+  /** 이 FFmpeg 에 톤 매핑 필터가 있는지 (한 번만 확인) */
+  private async canTonemap(): Promise<boolean> {
+    if (this.tonemapOk !== null) return this.tonemapOk;
+    const res = await this.deps.proc.run(this.deps.tools().ffmpeg, ['-hide_banner', '-filters'], {
+      timeoutMs: 15_000,
+      captureStdout: true,
+    });
+    this.tonemapOk = res.exitCode === 0 && supportsTonemap(res.stdout);
+    return this.tonemapOk;
+  }
+
   /** 파형 캐시 (경로·크기·수정 시각 기준, 최근 32개) */
   private readonly waveCache = new Map<string, WaveformData>();
 
@@ -354,13 +521,53 @@ export class VideoEditService {
     void (async () => {
       const temp = tempOutputPath(outDir, baseName, renderId, ext);
       try {
+        // 0) 원본 색 확인: HDR·10비트 원본은 사용자가 동의해야 SDR 8비트로 바꿔 내보낸다
+        emit({ stage: '원본 확인' });
+        const tonemapClips = new Set<number>();
+        const tonemapTrackClips = new Set<string>();
+        const colors: SourceColor[] = [];
+        for (const [ci, c] of project.clips.entries()) {
+          const col = await this.sourceColor(c.path);
+          colors.push({ fileName: c.fileName, ...col });
+          if (col.hdr) tonemapClips.add(ci);
+        }
+        for (const t of project.tracks) {
+          if (!t.enabled || t.kind !== 'video') continue;
+          for (const tc of t.clips) {
+            if (tc.kind !== 'video') continue;
+            const col = await this.sourceColor(tc.path);
+            colors.push({ fileName: tc.fileName, ...col });
+            if (col.hdr) tonemapTrackClips.add(tc.id);
+          }
+        }
+        const colorWarnings = conversionWarnings(colors);
+        if (colorWarnings.length > 0 && mode === 'export' && !project.output.hdrToSdr) {
+          throw new AppError(
+            'INVALID_REQUEST',
+            `HDR·10비트 원본이 있어 결과가 SDR 8비트로 바뀝니다. 출력 설정에서 "HDR·10비트 원본을 SDR 8비트로 변환"에 동의한 뒤 다시 내보내세요.\n${colorWarnings.join('\n')}`,
+          );
+        }
+        if (tonemapClips.size + tonemapTrackClips.size > 0 && !(await this.canTonemap())) {
+          if (mode === 'export') {
+            throw new AppError(
+              'INVALID_REQUEST',
+              '이 FFmpeg 빌드에는 톤 매핑 필터(zscale, tonemap)가 없어 HDR 원본을 SDR 로 바꿀 수 없습니다.',
+            );
+          }
+          // 미리보기 렌더는 톤 매핑 없이 진행한다 (결과가 아니다)
+          tonemapClips.clear();
+          tonemapTrackClips.clear();
+        }
         const plan = buildRenderPlan(project, {
           canvas,
           textDir: path.join(tempDir, 'text'),
           trfDir: path.join(tempDir, 'trf'),
           fontFile: this.deps.fontFile(),
           nullSink: process.platform === 'win32' ? 'NUL' : '/dev/null',
+          tonemapClips,
+          tonemapTrackClips,
         });
+        for (const w of colorWarnings) plan.notes.push(w);
         for (const t of plan.textFiles) fs.writeFileSync(t.file, t.content, 'utf8');
         const tools = this.deps.tools();
         const stages = plan.stabilizePasses.length + 1;
@@ -401,9 +608,17 @@ export class VideoEditService {
           }
         }
 
-        // 2) 본 렌더
-        removeAppTempFile(temp);
-        const args = [
+        // 2) 본 렌더. 하드웨어 인코더를 고르면 먼저 쓰고, 실패하면 CPU 인코더로 다시 렌더한다.
+        let hw: EditHwEncoder | null = null;
+        if (mode === 'export' && project.output.hardware) {
+          const st =
+            this.deps
+              .hardwareStatuses()
+              .find((x) => x.codec === project.output.codec && x.available) ?? null;
+          if (st) hw = { name: st.name, family: st.family };
+          else plan.notes.push('사용할 수 있는 하드웨어 인코더가 없어 CPU 인코더로 내보냈습니다');
+        }
+        const argsFor = (enc: EditHwEncoder | null): string[] => [
           '-n',
           '-hide_banner',
           '-loglevel',
@@ -418,7 +633,7 @@ export class VideoEditService {
           '-map',
           `[${plan.videoLabel}]`,
           ...(mode === 'export' && project.output.noAudio ? [] : ['-map', `[${plan.audioLabel}]`]),
-          ...outputArgs(mode, project.output),
+          ...outputArgs(mode, project.output, enc),
           '-t',
           plan.durationSec.toFixed(3),
           temp,
@@ -429,25 +644,36 @@ export class VideoEditService {
           clips: project.clips.length,
           durationSec: plan.durationSec,
           canvas,
+          encoder: hw?.name ?? 'cpu',
         });
-        const est = new ProgressEstimator(plan.durationSec, Date.now());
-        emit({ stage: mode === 'proxy' ? '미리보기 렌더링' : '내보내기 렌더링' });
-        const res = await this.deps.proc.run(tools.ffmpeg, args, {
-          jobId: `edit-${renderId}`,
-          signal: controller.signal,
-          stallTimeoutMs: RENDER_STALL_MS,
-          onProgress: (s) => {
-            const snap = est.update(s.outTimeSec, s.speed, Date.now(), {
-              index: stages - 1,
-              count: stages,
-            });
-            emit({
-              stage: mode === 'proxy' ? '미리보기 렌더링' : '내보내기 렌더링',
-              ratio: snap.ratio,
-              etaSec: snap.etaSec,
-            });
-          },
-        });
+        const encodeOnce = async (enc: EditHwEncoder | null, label: string) => {
+          removeAppTempFile(temp);
+          const est = new ProgressEstimator(plan.durationSec, Date.now());
+          emit({ stage: label });
+          return this.deps.proc.run(tools.ffmpeg, argsFor(enc), {
+            jobId: `edit-${renderId}`,
+            signal: controller.signal,
+            stallTimeoutMs: RENDER_STALL_MS,
+            onProgress: (s) => {
+              const snap = est.update(s.outTimeSec, s.speed, Date.now(), {
+                index: stages - 1,
+                count: stages,
+              });
+              emit({ stage: label, ratio: snap.ratio, etaSec: snap.etaSec });
+            },
+          });
+        };
+        const baseLabel = mode === 'proxy' ? '미리보기 렌더링' : '내보내기 렌더링';
+        let res = await encodeOnce(hw, hw ? `${baseLabel} (${hw.name})` : baseLabel);
+        if (hw && !res.cancelled && (res.exitCode !== 0 || !fs.existsSync(temp))) {
+          this.deps.logger.warn('edit hardware encoder failed, falling back to CPU', {
+            renderId,
+            encoder: hw.name,
+            tail: res.stderrTail.slice(-3),
+          });
+          plan.notes.push(`하드웨어 인코더(${hw.name})가 실패해 CPU 인코더로 다시 렌더했습니다`);
+          res = await encodeOnce(null, `${baseLabel} (CPU 로 다시)`);
+        }
         if (res.cancelled) throw new AppError('CANCELLED');
         if (res.exitCode !== 0 || !fs.existsSync(temp)) {
           throw new AppError(

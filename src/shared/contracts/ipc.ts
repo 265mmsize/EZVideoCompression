@@ -260,6 +260,16 @@ export interface InvokeContract {
   'edit:frame': { request: { path: string; timeSec: number }; response: { url: string } };
   /** 실시간 미리보기용 영상·음성 재생 주소 */
   'edit:mediaUrl': { request: { path: string }; response: { url: string } };
+  /** 무손실 합치기 가능 여부와 이유 */
+  'edit:lossless.check': {
+    request: { projectId: string };
+    response: { ok: boolean; reasons: string[] };
+  };
+  /** 재인코딩 없이 합치기. 진행은 edit:render.progress 이벤트 */
+  'edit:lossless.merge': {
+    request: { projectId: string; target: ImageExportTarget | null };
+    response: { renderId: string };
+  };
   /** 오디오 파형 피크 (0~100, 초당 peaksPerSec 개). 음성이 없으면 빈 배열 */
   'edit:waveform': {
     request: { path: string };
@@ -391,6 +401,8 @@ export const CHANNEL_NAMES = {
     'edit:pickMedia',
     'edit:frame',
     'edit:mediaUrl',
+    'edit:lossless.check',
+    'edit:lossless.merge',
     'edit:waveform',
     'edit:render',
     'edit:render.cancel',

@@ -61,6 +61,7 @@ import { sliceMotion } from '../../shared/keyframes';
 import { TrackClipPanel } from './TrackClipPanel';
 import { MotionPanel, motionTimes } from './MotionPanel';
 import { notify } from '../stores/appStore';
+import { useAppStore } from '../hooks/useAppStore';
 
 const AUTOSAVE_MS = 600;
 const FILMSTRIP_COUNT = 8;
@@ -387,6 +388,8 @@ export function VideoEditorPage(): ReactNode {
         sourceWidth: info.width ?? 1280,
         sourceHeight: info.height ?? 720,
         hasAudio: info.hasAudio,
+        hdr: info.hdr,
+        bitDepth: info.bitDepth,
         inSec: 0,
         outSec: info.durationSec,
         speed: 1,
@@ -544,6 +547,33 @@ export function VideoEditorPage(): ReactNode {
       });
       setPanel('export');
     }
+  };
+
+  /** 무손실 합치기 확인 (저장되지 않은 변경을 먼저 저장한다) */
+  const losslessCheck = async (): Promise<{ ok: boolean; reasons: string[] } | null> => {
+    const cur = projRef.current;
+    if (!cur || !(await flushSave())) return null;
+    return (await libraryApi.editLosslessCheck(cur.id)) ?? null;
+  };
+  /** 재인코딩 없이 합치기 (진행은 렌더와 같은 표시를 쓴다) */
+  const losslessMerge = async (): Promise<void> => {
+    const cur = projRef.current;
+    if (!cur || !(await flushSave())) return;
+    const res = await libraryApi.editLosslessMerge(cur.id, { kind: 'suffix', suffix: '-merge' });
+    if (!res) return;
+    setRender({
+      renderId: res.renderId,
+      projectId: cur.id,
+      mode: 'export',
+      status: 'running',
+      stage: '무손실 합치기 확인',
+      ratio: null,
+      etaSec: null,
+      outputPath: null,
+      previewId: null,
+      error: null,
+    });
+    setPanel('export');
   };
 
   // -------------------------------------------------------------------------
@@ -1279,6 +1309,11 @@ export function VideoEditorPage(): ReactNode {
                           {formatDuration(d)}
                           {c.speed !== 1 ? ` ×${String(c.speed)}` : ''}
                           {c.stabilize ? ' · 보정' : ''}
+                          {c.hdr
+                            ? ' · HDR'
+                            : c.bitDepth !== undefined && c.bitDepth !== null && c.bitDepth > 8
+                              ? ` · ${String(c.bitDepth)}비트`
+                              : ''}
                           {c.texts.length > 0 ? ` · T${String(c.texts.length)}` : ''}
                           {tr > 0
                             ? ` · ${TRANSITION_LABELS[c.transition.type].split(' ')[0] ?? ''}`
@@ -1433,6 +1468,8 @@ export function VideoEditorPage(): ReactNode {
             <ExportPanel
               project={project}
               render={render}
+              onLosslessCheck={losslessCheck}
+              onLosslessMerge={() => void losslessMerge()}
               onChange={update}
               onCancel={() => render && void libraryApi.editRenderCancel(render.renderId)}
             />
@@ -2109,17 +2146,75 @@ function ExportPanel({
   render,
   onChange,
   onCancel,
+  onLosslessCheck,
+  onLosslessMerge,
 }: {
   project: EditProject;
   render: EditRenderProgress | null;
   onChange: (fn: (p: EditProject) => EditProject) => void;
   onCancel: () => void;
+  onLosslessCheck: () => Promise<{ ok: boolean; reasons: string[] } | null>;
+  onLosslessMerge: () => void;
 }): ReactNode {
   const o = project.output;
   const chapters = chapterLines(project.clips).join('\n');
+  const { tools } = useAppStore();
+  const hw = tools?.hardwareEncoders.find((h) => h.codec === o.codec && h.available) ?? null;
+  const highRange = project.clips.filter(
+    (c) => c.hdr === true || (c.bitDepth !== undefined && c.bitDepth !== null && c.bitDepth > 8),
+  );
+  const [lossless, setLossless] = useState<{ ok: boolean; reasons: string[] } | null>(null);
+  const setOut = (patch: Partial<EditProject['output']>): void =>
+    onChange((p) => ({ ...p, output: { ...p.output, ...patch } }));
   return (
     <div>
       <h4 className="text-xs font-semibold text-[var(--c-muted)]">출력 설정</h4>
+      {highRange.length > 0 && (
+        <div role="alert" className="mt-1 rounded border border-[var(--c-danger)] p-2 text-xs">
+          HDR·10비트 원본이 있습니다:{' '}
+          {highRange
+            .map((c) => `${c.fileName}${c.hdr ? ' (HDR)' : ` (${String(c.bitDepth)}비트)`}`)
+            .join(', ')}
+          . 결과는 SDR 8비트(BT.709)로 만들어지므로 색과 밝기가 달라집니다. 아래에 동의해야 내보낼
+          수 있습니다.
+        </div>
+      )}
+      <label className="mt-1 flex items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          aria-label="HDR·10비트 원본을 SDR 8비트로 변환"
+          checked={o.hdrToSdr === true}
+          onChange={(e) => setOut({ hdrToSdr: e.target.checked })}
+        />
+        <span>
+          HDR·10비트 원본을 SDR 8비트로 변환해 내보내기 (HDR 은 톤 매핑). 동의하지 않으면 그런
+          원본이 있을 때 내보내기를 멈춥니다.
+        </span>
+      </label>
+      <label className="mt-1 flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          aria-label="클립 사이 음량 맞추기"
+          checked={o.normalizeAudio === true}
+          onChange={(e) => setOut({ normalizeAudio: e.target.checked })}
+        />
+        클립 사이 음량 맞추기 (EBU R128, -16 LUFS. 미리보기에는 반영되지 않음)
+      </label>
+      <label className="mt-1 flex items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          aria-label="하드웨어 인코더 사용"
+          checked={o.hardware === true}
+          onChange={(e) => setOut({ hardware: e.target.checked })}
+        />
+        <span>
+          하드웨어 인코더 사용 (
+          {hw ? `${hw.name} 사용 가능` : '이 PC 에서 사용할 수 있는 인코더 없음'}). 실패하면 CPU
+          인코더로 다시 렌더합니다. 품질 값은 CRF 대신 인코더별 기본값을 씁니다.
+        </span>
+      </label>
       <label className="mt-1 flex items-center gap-2 text-xs">
         <input
           type="checkbox"
@@ -2231,6 +2326,37 @@ function ExportPanel({
           <p className="text-xs text-[var(--c-muted)]">
             시작 시간은 전환이 겹친 뒤의 타임라인 기준입니다. 유튜브는 첫 챕터가 0:00 이어야 합니다.
           </p>
+        </div>
+      )}
+
+      <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">무손실 합치기</h4>
+      <p className="text-xs text-[var(--c-muted)]">
+        효과 없이 파일 전체를 잇고 형식이 모두 같으면 재인코딩 없이 몇 초 만에 합칩니다. 화질이
+        그대로입니다.
+      </p>
+      <div className="mt-1 flex flex-wrap gap-1">
+        <Button onClick={() => void onLosslessCheck().then((r) => setLossless(r))}>
+          가능한지 확인
+        </Button>
+        <Button
+          variant="primary"
+          disabled={!lossless?.ok || render?.status === 'running'}
+          onClick={onLosslessMerge}
+        >
+          무손실로 합치기
+        </Button>
+      </div>
+      {lossless && (
+        <div className="mt-1 text-xs" data-testid="lossless-result">
+          {lossless.ok ? (
+            <p>무손실로 합칠 수 있습니다.</p>
+          ) : (
+            <ul className="list-disc pl-4 text-[var(--c-muted)]">
+              {lossless.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

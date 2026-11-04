@@ -160,6 +160,8 @@ const editClipSchema = z.object({
   motion: z
     .object({ zoom: keyframeList, panX: keyframeList, panY: keyframeList, volume: keyframeList })
     .optional(),
+  hdr: z.boolean().optional(),
+  bitDepth: z.number().int().min(1).max(32).nullable().optional(),
 });
 export const kcpFileSchema = z.object({
   format: z.literal('kcp'),
@@ -243,6 +245,9 @@ export const editProjectSchema = z.object({
     crf: z.number().int().min(10).max(40),
     preset: z.enum(EDIT_PRESETS),
     noAudio: z.boolean().optional(),
+    hdrToSdr: z.boolean().optional(),
+    normalizeAudio: z.boolean().optional(),
+    hardware: z.boolean().optional(),
   }),
   tracks: z.array(editTrackSchema).max(20).default([]),
   createdAt: z.string().max(40),
@@ -412,6 +417,8 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'edit:pickMedia': z.object({ kind: z.enum(['video', 'audio', 'image']) }),
   'edit:frame': z.object({ path: absolutePath, timeSec: sec }),
   'edit:mediaUrl': z.object({ path: absolutePath }),
+  'edit:lossless.check': z.object({ projectId: idSchema }),
+  'edit:lossless.merge': z.object({ projectId: idSchema, target: exportTargetSchema.nullable() }),
   'edit:waveform': z.object({ path: absolutePath }),
   'edit:render': z.object({
     projectId: idSchema,

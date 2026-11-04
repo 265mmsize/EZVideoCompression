@@ -12,6 +12,8 @@
  * 모든 숫자는 소수 셋째 자리로 고정해 테스트에서 문자열 비교가 가능하게 한다.
  */
 import { evenSize as even, type Canvas } from '../../../shared/editCanvas';
+import { TONEMAP_FILTERS } from './sourceColor';
+import { hardwareEncodeArgs } from '../HardwareEncoderService';
 import {
   hasZoomPan,
   keyframeExpr,
@@ -38,6 +40,9 @@ export interface RenderPlanOptions {
   nullSink: string;
   /** 경로 구분자. 테스트에서 고정하기 위해 주입 */
   pathSep?: '/' | '\\';
+  /** HDR 원본이라 톤 매핑할 메인 클립 위치와 트랙 클립 id (사용자 동의 뒤에만 채운다) */
+  tonemapClips?: ReadonlySet<number>;
+  tonemapTrackClips?: ReadonlySet<string>;
 }
 
 export interface RenderPlan {
@@ -232,6 +237,10 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
       notes.push(`${c.fileName}: 손떨림 보정 (2-pass, vidstab)`);
     }
     v.push(`setpts=(PTS-STARTPTS)/${fix3(c.speed)}`, `trim=duration=${fix3(dur)}`);
+    if (opts.tonemapClips?.has(i)) {
+      v.push(...TONEMAP_FILTERS);
+      notes.push(`${c.fileName}: HDR → SDR 톤 매핑`);
+    }
     if (c.rotate === 90) v.push('transpose=1');
     else if (c.rotate === 270) v.push('transpose=2');
     else if (c.rotate === 180) v.push('transpose=1', 'transpose=1');
@@ -294,6 +303,10 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
         volKeys.length > 0
           ? `volume='${keyframeExpr(volKeys, c.volume, 't')}':eval=frame`
           : `volume=${fix3(c.volume)}`,
+        // 클립 사이 음량 맞춤: 클립마다 EBU R128 -16 LUFS 로 맞춘 뒤 표본 주파수를 되돌린다
+        ...(project.output.normalizeAudio
+          ? ['loudnorm=I=-16:TP=-1.5:LRA=11', 'aresample=48000']
+          : []),
         'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo',
         `apad=whole_dur=${fix3(dur)}`,
         `atrim=0:${fix3(dur)}`,
@@ -393,6 +406,10 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
             ? `setpts=PTS-STARTPTS+${fix3(start)}/TB`
             : `setpts=(PTS-STARTPTS)/${fix3(speed)}+${fix3(start)}/TB`,
         ];
+        if (opts.tonemapTrackClips?.has(tc.id)) {
+          f.push(...TONEMAP_FILTERS);
+          notes.push(`${tc.fileName}: HDR → SDR 톤 매핑`);
+        }
         // 회전 → 반전 → 밝기·대비·채도 (메인 클립과 같은 순서), 그다음 투명도·크기
         if (tc.rotate === 90) f.push('transpose=1');
         else if (tc.rotate === 270) f.push('transpose=2');
@@ -487,12 +504,25 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
 }
 
 /** 출력 인코더 인자. 편집 결과는 항상 재인코딩이다 */
-export function outputArgs(mode: 'proxy' | 'export', output: EditProject['output']): string[] {
+/** 하드웨어 인코더 (이름과 계열). null 이면 CPU 인코더 */
+export interface EditHwEncoder {
+  name: string;
+  family: 'nvenc' | 'qsv' | 'amf';
+}
+
+export function outputArgs(
+  mode: 'proxy' | 'export',
+  output: EditProject['output'],
+  hw: EditHwEncoder | null = null,
+): string[] {
   if (mode === 'proxy') {
     return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '30', '-c:a', 'aac', '-b:a', '96k'];
   }
   const enc = output.codec === 'h264' ? 'libx264' : 'libx265';
-  const args = ['-c:v', enc, '-preset', output.preset, '-crf', String(output.crf)];
+  // 하드웨어 인코더는 CRF 대신 인코더별 품질 값을 쓴다 (압축 기능과 같은 표). 결과는 8비트 yuv420p.
+  const args = hw
+    ? [...hardwareEncodeArgs(hw.name, hw.family, output.codec), '-pix_fmt', 'yuv420p']
+    : ['-c:v', enc, '-preset', output.preset, '-crf', String(output.crf)];
   // 음성 제외 옵션이면 음성 인코더를 아예 쓰지 않는다 (-an)
   if (output.noAudio) args.push('-an');
   else args.push('-c:a', 'aac', '-b:a', '192k');

@@ -160,6 +160,10 @@ export const libraryApi = {
   editProbe: (path: string) => run('파일 확인', () => call('edit:source.probe', { path })),
   editPickMedia: (kind: 'video' | 'audio' | 'image') =>
     run('파일 선택', () => call('edit:pickMedia', { kind })),
+  editLosslessCheck: (projectId: string) =>
+    run('무손실 합치기 확인', () => call('edit:lossless.check', { projectId })),
+  editLosslessMerge: (projectId: string, target: ImageExportTarget | null) =>
+    run('무손실 합치기', () => call('edit:lossless.merge', { projectId, target })),
   /** 오디오 파형 피크. 실패하면 null */
   editWaveform: async (path: string): Promise<{ peaksPerSec: number; peaks: number[] } | null> => {
     try {
