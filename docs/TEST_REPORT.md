@@ -201,4 +201,4 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
   - 가변 프레임 속도 원본(평균과 명목 프레임 속도가 다름)과 고정 프레임 원본을 합친 결과의 영상·음성 길이 차이 0.1초 미만, 프레임 수 150±3.
 - E2E (`tests/e2e/editFinish.spec.ts`): 출력 설정의 세 옵션 표시, 같은 형식 두 클립의 무손실 확인과 합치기("완료 (무손실)", "-merge.mp4" 생성), 음량 맞춤을 켜면 무손실 거부 이유 표시와 버튼 비활성.
 - 확인하지 않은 것: 실제 GPU 의 하드웨어 인코딩 결과, 실제 아이폰 HDR(Dolby Vision 포함) 파일의 톤 매핑 품질, Windows 에서의 실행.
-- 패키징: `xvfb-run -a npm run pack:win` 과 `npm run verify:win` 결과는 커밋 후 기록한다.
+- 패키징: `xvfb-run -a npm run pack:win` 으로 1.16.0 설치 파일과 포터블 파일을 만들었고 `npm run verify:win` 이 통과했다. 실제 설치와 실행은 Windows 11 에서 확인해야 한다.
