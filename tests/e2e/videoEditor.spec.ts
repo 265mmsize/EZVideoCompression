@@ -107,3 +107,76 @@ test('실행 취소로 분할을 되돌리고 다시 실행으로 복구한다',
   await page.getByRole('button', { name: '다시 실행' }).click();
   await expect(timeline.getByRole('listitem')).toHaveCount(2);
 });
+
+test('키보드로 구간을 고르고 잔물결 삭제한 뒤 실행 취소로 되돌린다', async () => {
+  await page.getByRole('button', { name: '영상 편집' }).click();
+  const back = page.getByRole('button', { name: '← 프로젝트 목록' });
+  if (await back.count()) await back.click();
+  await page.getByRole('button', { name: '새 프로젝트' }).click();
+  await page.getByRole('button', { name: '클립 추가' }).click();
+  const items = page.getByRole('list', { name: '타임라인' }).getByRole('listitem');
+  await expect(items).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.getByText(/클립 1개/)).toBeVisible();
+
+  // 1초에서 시작 (I), 2초에서 끝 (O) → 가운데 1초 구간을 잘라낸다
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('i');
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('o');
+  await expect(page.getByRole('button', { name: '구간 삭제 (Delete)' })).toBeVisible();
+
+  await page.keyboard.press('Delete');
+  await expect(items).toHaveCount(2);
+  await expect(page.getByText(/클립 2개/)).toBeVisible();
+
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect(items).toHaveCount(1);
+  await expect(page.getByText(/클립 1개/)).toBeVisible();
+});
+
+test('클립 끝을 끌어 줄이면 길이가 줄고, 실행 취소로 되돌린다', async () => {
+  const clip = page.getByRole('list', { name: '타임라인' }).getByRole('listitem').first();
+  const before = await clip.boundingBox();
+  const handle = clip.locator('div[title^="끝 조절"]');
+  const h = await handle.boundingBox();
+  if (!before || !h) throw new Error('클립 또는 끝 조절 핸들을 찾지 못했습니다');
+  const y = h.y + h.height / 2;
+  await page.mouse.move(h.x + h.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(h.x + h.width / 2 - 40, y, { steps: 6 });
+  await page.mouse.up();
+  const after = await clip.boundingBox();
+  expect(after?.width ?? 0).toBeLessThan(before.width - 20);
+
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  const restored = await clip.boundingBox();
+  expect(Math.abs((restored?.width ?? 0) - before.width)).toBeLessThan(2);
+});
+
+test('눈금을 끌어 구간을 고르고 Esc 로 해제한다', async () => {
+  const ruler = page.getByTestId('timeline-ruler');
+  const box = await ruler.boundingBox();
+  if (!box) throw new Error('눈금을 찾지 못했습니다');
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 20, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 90, y, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByRole('button', { name: '구간 삭제 (Delete)' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '구간 삭제 (Delete)' })).toHaveCount(0);
+});
+
+test('Ctrl+클릭으로 여러 클립을 고르고 한 번에 지운 뒤 되돌린다', async () => {
+  // 재생 헤드(1초)에서 S 키로 나누어 클립 2개를 만든다
+  await page.keyboard.press('s');
+  const items = page.getByRole('list', { name: '타임라인' }).getByRole('listitem');
+  await expect(items).toHaveCount(2);
+  await items.nth(0).click();
+  await items.nth(1).click({ modifiers: ['Control'] });
+  await expect(page.getByRole('button', { name: '고른 클립 2개 삭제' })).toBeVisible();
+  await page.getByRole('button', { name: '고른 클립 2개 삭제' }).click();
+  await expect(items).toHaveCount(0);
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect(items).toHaveCount(2);
+});

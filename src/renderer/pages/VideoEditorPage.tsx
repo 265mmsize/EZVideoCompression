@@ -31,6 +31,17 @@ import {
   splitEqually,
   transitionSec,
 } from './editOps';
+import {
+  boundaryTimes,
+  cutOut,
+  keepOnly,
+  moveTime,
+  normalizeRange,
+  snapTime,
+  trimEdge,
+  type TimeRange,
+  type TrimEdge,
+} from './timelineOps';
 import { Button } from '../components/ui';
 import { formatDuration } from '../format';
 import { libraryApi } from '../library/libraryActions';
@@ -96,6 +107,18 @@ function FilmStrip({ clip }: { clip: EditClip }): ReactNode {
   );
 }
 
+/** 타임라인 포인터 동작 상태: 눈금 끌기(구간), 트랙 클릭(재생 헤드), 클립 가장자리(트림) */
+type DragState =
+  | { kind: 'range'; anchorSec: number; startX: number; moved: boolean }
+  | { kind: 'scrub'; startX: number; moved: boolean }
+  | { kind: 'trim'; id: string; edge: TrimEdge; base: EditClip; startX: number };
+
+/** 눈금 간격: 확대 정도에 따라 1·5·10초 */
+function rulerTicks(total: number, pxPerSec: number): number[] {
+  const step = pxPerSec >= 30 ? 1 : pxPerSec >= 12 ? 5 : 10;
+  return Array.from({ length: Math.floor(total / step) + 1 }, (_, i) => i * step);
+}
+
 /** 끌어 놓은 x 좌표(픽셀)가 놓인 클립의 가운데 앞쪽 위치. 그 클립 자리로 옮긴다. */
 function dropIndexAt(clips: EditClip[], starts: number[], xPx: number, pxPerSec: number): number {
   for (let i = 0; i < clips.length; i++) {
@@ -143,6 +166,11 @@ export function VideoEditorPage(): ReactNode {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [render, setRender] = useState<EditRenderProgress | null>(null);
   const [panel, setPanel] = useState<'clip' | 'project' | 'export'>('clip');
+  // 구간 선택(눈금 끌기 또는 I·O 키), 다중 선택 클립, 포인터 동작 상태
+  const [rangeSel, setRangeSel] = useState<{ a: number; b: number } | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const dragRef = useRef<DragState | null>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
   const dirty = useRef(false);
   const dragClip = useRef<string | null>(null);
 
@@ -470,6 +498,139 @@ export function VideoEditorPage(): ReactNode {
 
   // -------------------------------------------------------------------------
 
+  // ----- 구간 선택·삭제, 다중 선택, 트림, 재생 헤드 (모두 실행 취소 가능) -----
+  const range: TimeRange | null = rangeSel ? normalizeRange(rangeSel.a, rangeSel.b, total) : null;
+  const clearSelection = (): void => {
+    setRangeSel(null);
+    setPicked(new Set());
+  };
+  const setInPoint = (): void => setRangeSel((r) => ({ a: playhead, b: r?.b ?? playhead }));
+  const setOutPoint = (): void => setRangeSel((r) => ({ a: r?.a ?? playhead, b: playhead }));
+  const cutRange = (): void => {
+    if (!range) return;
+    update((p) => ({ ...p, clips: cutOut(p.clips, range, () => crypto.randomUUID()) }));
+    setRangeSel(null);
+    setPlayhead(range.startSec);
+  };
+  const keepRange = (): void => {
+    if (!range) return;
+    update((p) => ({ ...p, clips: keepOnly(p.clips, range, () => crypto.randomUUID()) }));
+    setRangeSel(null);
+    setPlayhead(0);
+  };
+  const removeClips = (ids: ReadonlySet<string>): void => {
+    update((p) => ({ ...p, clips: p.clips.filter((c) => !ids.has(c.id)) }));
+    if (selectedClip && ids.has(selectedClip)) setSelectedClip(null);
+    setPicked(new Set());
+  };
+  /** 구간이 있으면 구간 삭제, 없으면 고른 클립(여러 개 가능) 삭제 */
+  const deleteSelection = (): void => {
+    if (range) {
+      cutRange();
+      return;
+    }
+    if (picked.size > 0) {
+      removeClips(picked);
+      return;
+    }
+    if (selectedClip) removeClips(new Set([selectedClip]));
+  };
+  /** 화면 x 좌표를 타임라인 시각(초)으로 바꾼다. 가로 스크롤과 여백을 반영한다. */
+  const timeAt = (clientX: number): number => {
+    const r = innerRef.current?.getBoundingClientRect();
+    const t = r ? (clientX - r.left) / pxPerSec : 0;
+    return Math.min(total, Math.max(0, t));
+  };
+  const snapped = (t: number): number => snapTime(t, boundaryTimes(clips), 6 / pxPerSec);
+  /** 포인터를 붙잡지 않는다. 붙잡으면 클릭이 클립이 아니라 바깥 요소로 가서 선택이 깨진다. */
+  const beginDrag = (d: DragState): void => {
+    dragRef.current = d;
+  };
+  const onPointerMove = (x: number): void => {
+    const d = dragRef.current;
+    if (!d) return;
+    if (d.kind === 'trim') {
+      const delta = (x - d.startX) / pxPerSec;
+      update(
+        (p) => ({
+          ...p,
+          clips: p.clips.map((c) => (c.id === d.id ? trimEdge(d.base, d.edge, delta) : c)),
+        }),
+        `trim:${d.id}:${d.edge}`,
+      );
+      return;
+    }
+    if (Math.abs(x - d.startX) > 3) d.moved = true;
+    const t = snapped(timeAt(x));
+    if (d.kind === 'scrub') setPlayhead(t);
+    else setRangeSel({ a: d.anchorSec, b: t });
+  };
+  const onPointerUp = (): void => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    // 눈금을 움직이지 않고 떼면 구간을 지우고 재생 헤드만 옮긴다
+    if (d && d.kind === 'range' && !d.moved) {
+      setRangeSel(null);
+      setPlayhead(d.anchorSec);
+    }
+  };
+
+  // 끌기 중의 이동과 놓기는 창 전체에서 받는다. 최신 핸들러는 렌더 후에 갱신한다.
+  const dragHandlers = useRef({ move: (_x: number): void => {}, up: (): void => {} });
+  useEffect(() => {
+    dragHandlers.current = { move: onPointerMove, up: onPointerUp };
+  });
+  useEffect(() => {
+    const move = (e: PointerEvent): void => dragHandlers.current.move(e.clientX);
+    const up = (): void => dragHandlers.current.up();
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, []);
+
+  // 편집 단축키: I·O 구간 지정, Delete 삭제, S 분할, 화살표 프레임 이동, Home·End, Esc 선택 해제.
+  // 입력칸에서는 동작하지 않는다. 등록은 렌더마다 다시 하므로 항상 최신 상태를 본다.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (!projRef.current || e.ctrlKey || e.metaKey || e.altKey) return;
+      const k = e.key;
+      if (k === 'i' || k === 'I') {
+        e.preventDefault();
+        setInPoint();
+      } else if (k === 'o' || k === 'O') {
+        e.preventDefault();
+        setOutPoint();
+      } else if (k === 'Delete' || k === 'Backspace') {
+        e.preventDefault();
+        deleteSelection();
+      } else if (k === 'Escape') {
+        clearSelection();
+      } else if (k === 's' || k === 'S') {
+        e.preventDefault();
+        splitAtPlayhead();
+      } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+        e.preventDefault();
+        const fps = projRef.current.canvas.fps;
+        const frame = 1 / (typeof fps === 'number' ? fps : 30);
+        const step = (e.shiftKey ? 1 : frame) * (k === 'ArrowLeft' ? -1 : 1);
+        setPlayhead((t) => moveTime(t, total, step));
+      } else if (k === 'Home') {
+        setPlayhead(0);
+      } else if (k === 'End') {
+        setPlayhead(total);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   if (!project) {
     return (
       <div className="flex h-full flex-col gap-3 p-4 text-sm">
@@ -646,74 +807,194 @@ export function VideoEditorPage(): ReactNode {
                 clip={selClip}
               />
             )}
+            {/* 구간 도구 */}
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+              <Button onClick={setInPoint} aria-label="구간 시작을 재생 헤드 위치로">
+                시작 (I)
+              </Button>
+              <Button onClick={setOutPoint} aria-label="구간 끝을 재생 헤드 위치로">
+                끝 (O)
+              </Button>
+              {range ? (
+                <>
+                  <span className="tabular-nums">
+                    구간 {formatDuration(range.startSec)} – {formatDuration(range.endSec)} (
+                    {(range.endSec - range.startSec).toFixed(2)}초)
+                  </span>
+                  <Button variant="danger" onClick={cutRange}>
+                    구간 삭제 (Delete)
+                  </Button>
+                  <Button onClick={keepRange}>구간만 남기기</Button>
+                </>
+              ) : (
+                <span className="text-[var(--c-muted)]">
+                  눈금을 끌어 구간을 고르거나 I·O 키로 지정합니다. 클립은 Ctrl+클릭으로 여러 개
+                  고릅니다.
+                </span>
+              )}
+              {(rangeSel !== null || picked.size > 0) && (
+                <Button onClick={clearSelection}>선택 해제 (Esc)</Button>
+              )}
+              {picked.size > 1 && (
+                <Button variant="danger" onClick={() => removeClips(picked)}>
+                  고른 클립 {picked.size}개 삭제
+                </Button>
+              )}
+            </div>
             <div
-              className="relative h-24 overflow-x-auto rounded border border-[var(--c-border)] bg-[var(--c-surface-2)]"
-              role="list"
-              aria-label="타임라인"
-              onDragOver={(e) => {
-                if (dragClip.current) e.preventDefault();
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const from = dragClip.current;
-                dragClip.current = null;
-                if (!from) return;
-                const box = e.currentTarget.getBoundingClientRect();
-                const x = e.clientX - box.left + e.currentTarget.scrollLeft;
-                const to = dropIndexAt(clips, starts, x, pxPerSec);
-                update((p) => reorderClip(p, from, to));
-              }}
+              className="overflow-x-auto rounded border border-[var(--c-border)] bg-[var(--c-surface-2)]"
+              role="group"
+              aria-label="타임라인 편집 영역"
             >
               <div
-                className="relative h-full"
+                ref={innerRef}
+                className="relative select-none"
                 style={{ width: Math.max(200, total * pxPerSec + 40) }}
               >
-                {clips.map((c, i) => {
-                  const s = starts[i] ?? 0;
-                  const d = clipDur(c);
-                  const tr = transitionSec(c, clips[i + 1]);
-                  const active = c.id === selectedClip;
-                  return (
-                    <div
-                      key={c.id}
-                      role="listitem"
-                      aria-label={`클립 ${String(i + 1)}: ${c.fileName}`}
-                      aria-selected={active}
-                      draggable
-                      onDragStart={(e) => {
-                        dragClip.current = c.id;
-                        e.dataTransfer.effectAllowed = 'move';
-                        e.dataTransfer.setData('text/plain', c.id);
-                      }}
-                      onDragEnd={() => {
-                        dragClip.current = null;
-                      }}
-                      title={`${c.fileName} ${c.inSec.toFixed(2)}–${c.outSec.toFixed(2)}초 ×${String(c.speed)}`}
-                      onClick={() => {
-                        setSelectedClip(c.id);
-                        setPanel('clip');
-                      }}
-                      className={`absolute top-2 flex h-14 cursor-pointer flex-col justify-between overflow-hidden rounded border px-1 py-0.5 text-xs ${active ? 'border-[var(--c-accent)] bg-[var(--c-accent)] text-[var(--c-accent-text)]' : 'border-[var(--c-border)] bg-[var(--c-surface)]'}`}
-                      style={{ left: s * pxPerSec, width: Math.max(24, d * pxPerSec) }}
-                    >
-                      <span className="truncate font-medium">{c.fileName}</span>
-                      <span className="truncate">
-                        {formatDuration(d)}
-                        {c.speed !== 1 ? ` ×${String(c.speed)}` : ''}
-                        {c.stabilize ? ' · 보정' : ''}
-                        {c.texts.length > 0 ? ` · T${String(c.texts.length)}` : ''}
-                        {tr > 0
-                          ? ` · ${TRANSITION_LABELS[c.transition.type].split(' ')[0] ?? ''}`
-                          : ''}
-                      </span>
-                    </div>
-                  );
-                })}
+                {/* 눈금: 끌면 구간을 고르고, 가볍게 누르면 재생 헤드를 옮긴다 */}
                 <div
-                  className="pointer-events-none absolute top-0 h-full w-0.5 bg-[var(--c-danger)]"
-                  style={{ left: Math.min(playhead, total) * pxPerSec }}
-                  aria-hidden
-                />
+                  data-testid="timeline-ruler"
+                  className="relative h-6 cursor-pointer border-b border-[var(--c-border)] text-[10px] text-[var(--c-muted)]"
+                  onPointerDown={(e) => {
+                    const t = snapped(timeAt(e.clientX));
+                    beginDrag({ kind: 'range', anchorSec: t, startX: e.clientX, moved: false });
+                  }}
+                >
+                  {rulerTicks(total, pxPerSec).map((t) => (
+                    <span
+                      key={t}
+                      className="absolute top-0 h-full border-l border-[var(--c-border)] pl-0.5"
+                      style={{ left: t * pxPerSec }}
+                    >
+                      {formatDuration(t)}
+                    </span>
+                  ))}
+                </div>
+                {/* 트랙: 빈 곳을 누르면 재생 헤드가 움직이고, 여기에 놓은 클립은 순서가 바뀐다 */}
+                <div
+                  role="list"
+                  aria-label="타임라인"
+                  className="relative h-24"
+                  onPointerDown={(e) =>
+                    beginDrag({ kind: 'scrub', startX: e.clientX, moved: false })
+                  }
+                  onDragOver={(e) => {
+                    if (dragClip.current) e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const from = dragClip.current;
+                    dragClip.current = null;
+                    if (!from) return;
+                    const to = dropIndexAt(clips, starts, timeAt(e.clientX) * pxPerSec, pxPerSec);
+                    update((p) => reorderClip(p, from, to));
+                  }}
+                >
+                  {range && (
+                    <div
+                      className="pointer-events-none absolute top-0 h-full"
+                      style={{
+                        left: range.startSec * pxPerSec,
+                        width: (range.endSec - range.startSec) * pxPerSec,
+                        background: 'rgba(59,130,246,0.25)',
+                      }}
+                      aria-hidden
+                    />
+                  )}
+                  {clips.map((c, i) => {
+                    const s = starts[i] ?? 0;
+                    const d = clipDur(c);
+                    const tr = transitionSec(c, clips[i + 1]);
+                    const active = c.id === selectedClip;
+                    const isPicked = picked.has(c.id);
+                    return (
+                      <div
+                        key={c.id}
+                        role="listitem"
+                        aria-label={`클립 ${String(i + 1)}: ${c.fileName}`}
+                        aria-selected={active}
+                        draggable
+                        onDragStart={(e) => {
+                          // 가장자리를 조절하는 중에는 클립 끌기를 시작하지 않는다
+                          if (dragRef.current?.kind === 'trim') {
+                            e.preventDefault();
+                            return;
+                          }
+                          dragClip.current = c.id;
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', c.id);
+                        }}
+                        onDragEnd={() => {
+                          dragClip.current = null;
+                        }}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.metaKey) {
+                            setPicked((prev) => {
+                              // 지금 선택한 클립도 고른 목록에 포함시킨 뒤 토글한다
+                              const n = new Set(
+                                prev.size === 0 && selectedClip ? [selectedClip] : prev,
+                              );
+                              if (n.has(c.id)) n.delete(c.id);
+                              else n.add(c.id);
+                              return n;
+                            });
+                            return;
+                          }
+                          setPicked(new Set());
+                          setSelectedClip(c.id);
+                          setPanel('clip');
+                        }}
+                        title={`${c.fileName} ${c.inSec.toFixed(2)}–${c.outSec.toFixed(2)}초 ×${String(c.speed)}`}
+                        className={`absolute top-2 flex h-14 cursor-pointer flex-col justify-between overflow-hidden rounded border px-1 py-0.5 text-xs ${active ? 'border-[var(--c-accent)] bg-[var(--c-accent)] text-[var(--c-accent-text)]' : 'border-[var(--c-border)] bg-[var(--c-surface)]'} ${isPicked ? 'ring-2 ring-amber-400' : ''}`}
+                        style={{ left: s * pxPerSec, width: Math.max(24, d * pxPerSec) }}
+                      >
+                        <div
+                          className="absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-white/40"
+                          title="시작 조절 (끌면 잔물결로 줄어든다)"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            beginDrag({
+                              kind: 'trim',
+                              id: c.id,
+                              edge: 'in',
+                              base: c,
+                              startX: e.clientX,
+                            });
+                          }}
+                        />
+                        <div
+                          className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-white/40"
+                          title="끝 조절 (끌면 잔물결로 줄어든다)"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            beginDrag({
+                              kind: 'trim',
+                              id: c.id,
+                              edge: 'out',
+                              base: c,
+                              startX: e.clientX,
+                            });
+                          }}
+                        />
+                        <span className="truncate font-medium">{c.fileName}</span>
+                        <span className="truncate">
+                          {formatDuration(d)}
+                          {c.speed !== 1 ? ` ×${String(c.speed)}` : ''}
+                          {c.stabilize ? ' · 보정' : ''}
+                          {c.texts.length > 0 ? ` · T${String(c.texts.length)}` : ''}
+                          {tr > 0
+                            ? ` · ${TRANSITION_LABELS[c.transition.type].split(' ')[0] ?? ''}`
+                            : ''}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div
+                    className="pointer-events-none absolute top-0 h-full w-0.5 bg-[var(--c-danger)]"
+                    style={{ left: Math.min(playhead, total) * pxPerSec }}
+                    aria-hidden
+                  />
+                </div>
               </div>
             </div>
           </div>
