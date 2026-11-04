@@ -172,4 +172,4 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
 - 통합: 미리보기 재생 주소가 영상은 video/mp4, 음악은 audio/mpeg 로 원래 경로에 해석되고, 같은 파일은 같은 주소이며, 텍스트 파일·없는 파일·폴더는 거부한다 (`tests/integration/editPreview.test.ts`).
 - E2E: 재생 버튼으로 미리보기를 켜면 vslim-media 영상이 붙고, 재생 헤드가 1초 분할 지점을 넘어 1.6초 이상으로 간다 (두 번째 클립으로 이어짐). 정지하면 원본 프레임 보기로 돌아간다. Space 키는 초점이 있는 "클립 추가" 버튼을 누르지 않고 재생만 바꾼다 (`tests/e2e/videoEditor.spec.ts`).
 - 확인하지 않은 것: 화면에 보이는 색·위치가 내보낸 결과와 픽셀 단위로 같은지, 전환 중 소리의 교차, 배경 음악 실제 소리 (테스트 환경에 소리 장치가 없다), 4K·긴 프로젝트의 끊김, 재생할 수 없는 코덱에서의 안내 문구.
-- 패키징: `xvfb-run -a npm run pack:win` 과 `npm run verify:win` 결과는 커밋 후 기록한다.
+- 패키징: `xvfb-run -a npm run pack:win` 으로 1.13.0 설치 파일과 포터블 파일을 만들었고 `npm run verify:win` 이 통과했다. 실제 설치와 실행은 Windows 11 에서 확인해야 한다.
