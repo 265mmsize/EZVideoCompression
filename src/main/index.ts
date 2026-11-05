@@ -55,6 +55,8 @@ protocol.registerSchemesAsPrivileged([
       secure: true,
       stream: true,
       supportFetchAPI: true,
+      // 교차 출처 요청(소리 그래프의 미디어 요소)을 허용한다. 응답 헤더로 출처를 연다
+      corsEnabled: true,
       bypassCSP: false,
     },
   },
@@ -330,6 +332,18 @@ function bootstrap(): void {
  */
 function installMediaProtocol(s: AppServices): void {
   protocol.handle(MEDIA_SCHEME, (request) => {
+    // 교차 출처(CORS) 미디어 요청의 사전 점검: Range 헤더를 허용한다
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Allow-Headers': 'Range',
+          'Access-Control-Max-Age': '600',
+        },
+      });
+    }
     const token = tokenFromUrl(request.url);
     const entry = token ? s.tokens.resolve(token) : null;
     if (!entry) return new Response('not found', { status: 404 });

@@ -33,6 +33,13 @@ describe('Range 요청 해석', () => {
     expect(p.headers['Content-Length']).toBe('10');
     expect(planMediaResponse(null, 100, 'video/mp4').status).toBe(200);
     expect(planMediaResponse('bytes=999-', 100, 'video/mp4').status).toBe(416);
+    // 소리 그래프용 교차 출처 허용이 모든 응답에 붙는다
+    expect(planMediaResponse(null, 100, 'video/mp4').headers['Access-Control-Allow-Origin']).toBe(
+      '*',
+    );
+    expect(
+      planMediaResponse('bytes=999-', 100, 'video/mp4').headers['Access-Control-Allow-Origin'],
+    ).toBe('*');
   });
 });
 

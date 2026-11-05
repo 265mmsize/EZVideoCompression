@@ -26,6 +26,21 @@ import {
   type View,
 } from './playerMath';
 import { cueAt, parseSubtitles } from './subtitleParse';
+import {
+  clampGain,
+  EQ_FREQS,
+  EQ_PRESETS,
+  EQ_STORAGE_KEY,
+  FX_LABELS,
+  FX_NAMES,
+  FX_STORAGE_KEY,
+  fxFilter,
+  sanitizeEq,
+  sanitizeFx,
+  type FxName,
+  type FxSettings,
+} from './audioFx';
+import { graphFor } from './audioGraph';
 import { screenToImagePixel } from './colorMath';
 import { loupeBackground, regionFromDrag } from '../viewer/viewerMath';
 
@@ -58,6 +73,32 @@ function writeBookmarks(id: string | null, list: number[]): void {
   if (!id) return;
   try {
     localStorage.setItem(bookmarkStorageKey(id), JSON.stringify(list));
+  } catch {
+    // 저장소를 못 써도 재생에는 지장이 없다
+  }
+}
+
+/** 저장된 이퀄라이저 값 (없거나 저장소를 못 읽으면 평탄) */
+function readEq(): number[] {
+  try {
+    return sanitizeEq(JSON.parse(localStorage.getItem(EQ_STORAGE_KEY) ?? 'null'));
+  } catch {
+    return sanitizeEq(null);
+  }
+}
+
+/** 저장된 화면 효과 설정 (없거나 저장소를 못 읽으면 기본값) */
+function readFx(): FxSettings {
+  try {
+    return sanitizeFx(JSON.parse(localStorage.getItem(FX_STORAGE_KEY) ?? 'null'));
+  } catch {
+    return sanitizeFx(null);
+  }
+}
+
+function writeJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // 저장소를 못 써도 재생에는 지장이 없다
   }
@@ -125,6 +166,10 @@ export function VideoWithTools({
   const [bookmarks, setBookmarks] = useState<number[]>(() => readBookmarks(resumeKey ?? null));
   const drag = useRef<{ x: number; y: number } | null>(null);
   const lastSaved = useRef(0);
+  const [eqGains, setEqGains] = useState<number[]>(() => readEq());
+  const [fx, setFx] = useState<FxSettings>(() => readFx());
+  const [playing, setPlaying] = useState(false);
+  const [level, setLevel] = useState(0);
 
   const span = normalizeLoop(a, b, duration);
   const range: LoopRange | null = loopOn ? span : null;
@@ -154,6 +199,34 @@ export function VideoWithTools({
     const el = ref.current;
     if (el) el.playbackRate = rate;
   }, [rate, src]);
+
+  // 이퀄라이저 값과 화면 효과 설정은 바뀔 때마다 저장하고, 소리 그래프에 바로 반영한다
+  useEffect(() => {
+    writeJson(EQ_STORAGE_KEY, eqGains);
+    const el = ref.current;
+    if (el) graphFor(el).setGains(eqGains);
+  }, [eqGains, src]);
+  useEffect(() => {
+    writeJson(FX_STORAGE_KEY, fx);
+  }, [fx]);
+
+  // 재생 중에만 음량 미터를 갱신한다 (멈추면 0 으로 표시)
+  useEffect(() => {
+    if (!playing) return;
+    const el = ref.current;
+    if (!el) return;
+    const g = graphFor(el);
+    const id = setInterval(() => setLevel(g.level()), 200);
+    return () => clearInterval(id);
+  }, [playing, src]);
+
+  // 항목이 바뀌어 영상 요소가 교체되면 이전 요소의 소리 그래프를 닫는다
+  useEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (el) graphFor(el).dispose();
+    };
+  }, [src]);
 
   const saveResume = (el: HTMLVideoElement): void => {
     if (!resumeKey) return;
@@ -326,7 +399,16 @@ export function VideoWithTools({
     height: rotated ? '100cqw' : '100cqh',
     objectFit: 'contain',
     transform: `translate(-50%, -50%) rotate(${String(rotation)}deg) scale(${flipH ? -1 : 1}, ${flipV ? -1 : 1})`,
+    filter: fxFilter(fx.preset),
   };
+  const eqPresetName =
+    Object.keys(EQ_PRESETS).find((name) =>
+      (EQ_PRESETS[name] ?? []).every((v, i) => v === (eqGains[i] ?? 0)),
+    ) ?? 'custom';
+  const setBand = (i: number, value: number): void => {
+    setEqGains((prev) => prev.map((v, j) => (j === i ? clampGain(value) : v)));
+  };
+  const meter = playing ? level : 0;
 
   const doCut = async (list: CutSpan[]): Promise<void> => {
     if (!onCutRanges || list.length === 0) return;
@@ -385,12 +467,27 @@ export function VideoWithTools({
             ref={ref}
             key={src}
             src={src}
+            crossOrigin="anonymous"
             controls
             preload="metadata"
             className="bg-black"
             style={videoStyle}
             onError={onError}
             onTimeUpdate={onTimeUpdate}
+            onPlay={() => {
+              const el = ref.current;
+              if (el) {
+                const g = graphFor(el);
+                // 소리 그래프는 재생 동작 안에서 만든다 (자동재생 정책 때문)
+                if (g.ensure()) {
+                  g.setGains(eqGains);
+                  g.resume();
+                }
+              }
+              setPlaying(true);
+            }}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
             onLoadedMetadata={() => {
               const el = ref.current;
               if (!el) return;
@@ -402,6 +499,28 @@ export function VideoWithTools({
             <track kind="captions" />
           </video>
         </div>
+        {fx.vignette && (
+          <div
+            aria-hidden
+            data-testid="fx-vignette"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.65) 100%)',
+            }}
+          />
+        )}
+        {fx.scanlines && (
+          <div
+            aria-hidden
+            data-testid="fx-scanlines"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                'repeating-linear-gradient(to bottom, rgba(0,0,0,0.25) 0px, rgba(0,0,0,0.25) 1px, transparent 1px, transparent 3px)',
+            }}
+          />
+        )}
         {cue && (
           <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center px-4">
             <span
@@ -601,6 +720,108 @@ export function VideoWithTools({
           </span>
         </div>
       )}
+      <section
+        aria-label="음향과 화면 효과"
+        className="space-y-2 rounded border border-[var(--c-border)] p-2 text-xs"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">이퀄라이저</span>
+          <select
+            aria-label="이퀄라이저 프리셋"
+            className="rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-0.5"
+            value={eqPresetName}
+            onChange={(e) => {
+              const p = EQ_PRESETS[e.target.value];
+              if (p) setEqGains([...p]);
+            }}
+          >
+            {Object.keys(EQ_PRESETS).map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+            {eqPresetName === 'custom' && <option value="custom">직접 조절</option>}
+          </select>
+          <Button onClick={() => setEqGains([...(EQ_PRESETS['평탄'] ?? [])])}>
+            이퀄라이저 초기화
+          </Button>
+          <span
+            data-testid="audio-meter"
+            data-level={meter.toFixed(3)}
+            className="flex items-center gap-1 text-[var(--c-muted)]"
+          >
+            음량
+            <span className="inline-block h-2 w-24 overflow-hidden rounded bg-[var(--c-surface-2)]">
+              <span
+                className="block h-full bg-emerald-500"
+                style={{ width: `${String(Math.min(100, Math.round(meter * 300)))}%` }}
+              />
+            </span>
+          </span>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          {EQ_FREQS.map((f, i) => {
+            const g = eqGains[i] ?? 0;
+            return (
+              <label key={f} className="flex flex-col items-center gap-1">
+                <span className="tabular-nums">
+                  {g > 0 ? '+' : ''}
+                  {g.toFixed(1)}
+                </span>
+                <input
+                  type="range"
+                  aria-label={`${String(f)} Hz`}
+                  min={-12}
+                  max={12}
+                  step={0.5}
+                  value={g}
+                  onChange={(e) => setBand(i, Number(e.target.value))}
+                  className="h-24 w-5"
+                  style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
+                />
+                <span className="text-[var(--c-muted)]">
+                  {f >= 1000 ? `${String(f / 1000)}k` : String(f)}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">화면 효과</span>
+          <select
+            aria-label="화면 효과"
+            className="rounded border border-[var(--c-border)] bg-[var(--c-surface)] p-0.5"
+            value={fx.preset}
+            onChange={(e) => setFx((s) => ({ ...s, preset: e.target.value as FxName }))}
+          >
+            {FX_NAMES.map((n) => (
+              <option key={n} value={n}>
+                {FX_LABELS[n]}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={fx.vignette}
+              onChange={(e) => setFx((s) => ({ ...s, vignette: e.target.checked }))}
+            />
+            가장자리 어둡게
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={fx.scanlines}
+              onChange={(e) => setFx((s) => ({ ...s, scanlines: e.target.checked }))}
+            />
+            스캔라인
+          </label>
+        </div>
+        <span className="block text-[var(--c-muted)]">
+          설정은 이 PC에 저장됩니다. 소리 처리와 화면 효과는 재생 화면에만 적용되며 원본 파일은
+          바뀌지 않습니다.
+        </span>
+      </section>
       <p className="text-xs text-[var(--c-muted)]">
         키보드(영상 클릭 후): Space 재생, ←/→ 3초, Shift 10초, Alt 1분, Ctrl+←/→ 한 프레임, Z·X·C
         배속, [ ] A/B, \ 구간 해제, L 반복, R·E 회전, Q 반대 회전, H·V 반전, ↑↓ 볼륨, M 음소거, + -

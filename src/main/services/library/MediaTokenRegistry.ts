@@ -148,6 +148,8 @@ export function planMediaResponse(
     'Content-Type': mime,
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-store',
+    // 소리 그래프(Web Audio)가 교차 출처 미디어의 소리를 무음으로 만들지 않도록 CORS 허용을 준다
+    'Access-Control-Allow-Origin': '*',
   };
   const range = parseRange(rangeHeader, size);
   if (range === 'invalid') {

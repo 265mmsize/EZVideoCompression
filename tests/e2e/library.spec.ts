@@ -129,3 +129,34 @@ test('비교 탭에서 준비된 작업의 설정 미리보기를 만들고 양�
   await page.getByRole('button', { name: '와이프' }).click();
   await expect(page.getByRole('slider', { name: '와이프 위치' })).toBeVisible();
 });
+
+test('음향 이퀄라이저와 화면 효과가 재생 화면에 적용되고 음량 미터가 움직인다', async () => {
+  await page.getByRole('button', { name: '라이브러리' }).click();
+  const grid = page.getByRole('listbox', { name: '미디어 항목' });
+  await grid.getByRole('option', { name: /여행 영상/ }).click();
+  const detail = page.getByRole('complementary', { name: '미디어 상세' });
+  const video = detail.locator('video');
+  await expect(video).toHaveAttribute('src', /^vslim-media:\/\/file\//, { timeout: 30_000 });
+  const fx = detail.getByRole('region', { name: '음향과 화면 효과' });
+  // 화면 효과는 CSS 필터로 재생 화면에 바로 적용된다
+  await fx.getByRole('combobox', { name: '화면 효과' }).selectOption('sepia');
+  await expect
+    .poll(async () => video.evaluate((el: { style: { filter: string } }) => el.style.filter))
+    .toMatch(/sepia/);
+  // 이퀄라이저 프리셋을 고르면 밴드 값이 프리셋 값으로 바뀐다 (목소리: 1kHz = +4dB)
+  await fx.getByRole('combobox', { name: '이퀄라이저 프리셋' }).selectOption('목소리');
+  await expect(fx.getByRole('slider', { name: '1000 Hz' })).toHaveValue('4');
+  await fx.getByRole('slider', { name: '1000 Hz' }).fill('6');
+  await expect(fx.getByRole('combobox', { name: '이퀄라이저 프리셋' })).toHaveValue('custom');
+  // 재생하면 소리 그래프가 만들어지고 음량 미터에 값이 나온다
+  // 사용자 입력(키보드 Space)으로 재생한다. 스크립트 재생은 자동재생 정책으로 소리 그래프가 멈출 수 있다
+  await detail.getByLabel(/영상 보기/).focus();
+  await page.keyboard.press('Space');
+  await expect.poll(async () => video.evaluate((el: { paused: boolean }) => el.paused)).toBe(false);
+  await expect
+    .poll(async () => Number(await page.getByTestId('audio-meter').getAttribute('data-level')), {
+      timeout: 30_000,
+    })
+    .toBeGreaterThan(0);
+  await video.evaluate((el: { pause(): void }) => el.pause());
+});
