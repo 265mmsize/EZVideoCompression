@@ -225,4 +225,4 @@ E2E 는 root 로 실행되는 컨테이너이므로 Electron 에 `--no-sandbox` 
 - 통합 (실제 FFmpeg): 인터레이스(위 필드 우선) 파일을 `interlaced` 로 감지하고, 제거를 켠 렌더 결과의 필드 순서가 인터레이스가 아님 (`sourceFix.test.ts`). 구간 1~2초 내보내기 결과 길이 1초, 저장된 프로젝트 JSON 불변 (`rangeExport.test.ts`). 원본 파일을 옮긴 뒤 누락 목록 확인, 새 파일로 다시 연결, 저장된 프로젝트 반영 (`relink.test.ts`). 4:3 영상을 1280×720 캔버스에 맞춘 실제 렌더의 가운데 줄 가로 비율이 미리보기 계산(75%)과 1% 안에서 같음 (`previewGeometry.test.ts`).
 - E2E (`tests/e2e/sourceEdit.spec.ts`): 구간이 없을 때 "선택 구간만 내보내기" 비활성, 클립 선택 후 "인터레이스 제거" 체크박스와 "자막 파일 가져오기" 버튼 표시.
 - 확인하지 않은 것: 실제 휴대폰 회전 영상(이 환경에서 만들 수 없음), 파일 선택 창의 실제 동작(원본 찾기, 자막 선택), 자막 스타일(ASS 색·위치) 반영, 미리보기와 내보내기의 색·텍스트 모양 일치, 실제 Windows 실행.
-- 패키징: `xvfb-run -a npm run pack:win` 과 `npm run verify:win` 결과는 커밋 후 기록한다.
+- 패키징: `xvfb-run -a npm run pack:win` 으로 1.19.0 설치 파일과 포터블 파일을 만들었고 `npm run verify:win` 이 통과했다. 실제 설치와 실행은 Windows 11 에서 확인해야 한다.
