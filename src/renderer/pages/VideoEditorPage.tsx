@@ -65,6 +65,9 @@ import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { copyOf, freezeAt } from './clipEdits';
 import { clipLabel, maxFadeSec } from '../../shared/clipTime';
 import { vocalAvailability } from '../../shared/audioClean';
+import type { MissingRef } from '../../shared/relink';
+import { parseSubtitles } from '../library/subtitleParse';
+import { cuesToTexts, MAX_CLIP_TEXTS } from './subtitleImport';
 import { notify } from '../stores/appStore';
 import { useAppStore } from '../hooks/useAppStore';
 
@@ -219,6 +222,11 @@ export function VideoEditorPage(): ReactNode {
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   const clipboardRef = useRef<EditClip | null>(null);
   const [hasClipboard, setHasClipboard] = useState(false);
+  // 디스크에 없는 원본 목록 (어떤 프로젝트의 것인지 함께 기억한다)
+  const [missingState, setMissingState] = useState<{
+    projectId: string;
+    list: MissingRef[];
+  } | null>(null);
   const trackBoxRef = useRef<HTMLDivElement>(null);
   const previewBoxRef = useRef<HTMLDivElement>(null);
   // 고른 추가 트랙 클립 (메인 클립 선택과 함께 쓰지 않는다)
@@ -408,6 +416,7 @@ export function VideoEditorPage(): ReactNode {
         hasAudio: info.hasAudio,
         hdr: info.hdr,
         audioChannels: info.audioChannels,
+        deinterlace: info.interlaced,
         noiseReduce: 'off',
         vocal: 'off',
         bitDepth: info.bitDepth,
@@ -532,7 +541,11 @@ export function VideoEditorPage(): ReactNode {
     });
   };
 
-  const startRender = async (mode: 'proxy' | 'export', saveAs: boolean): Promise<void> => {
+  const startRender = async (
+    mode: 'proxy' | 'export',
+    saveAs: boolean,
+    rangeOpt: TimeRange | null = null,
+  ): Promise<void> => {
     if (!project) return;
     if (dirty.current) {
       dirty.current = false;
@@ -549,10 +562,10 @@ export function VideoEditorPage(): ReactNode {
         if (!picked) return;
         target = { kind: 'path', path: picked.path };
       } else {
-        target = { kind: 'suffix', suffix: '-edit' };
+        target = { kind: 'suffix', suffix: rangeOpt ? '-range' : '-edit' };
       }
     }
-    const res = await libraryApi.editRender(project.id, mode, target);
+    const res = await libraryApi.editRender(project.id, mode, target, rangeOpt);
     if (res) {
       setRender({
         renderId: res.renderId,
@@ -568,6 +581,45 @@ export function VideoEditorPage(): ReactNode {
       });
       setPanel('export');
     }
+  };
+
+  /** 자막 파일을 고른 클립의 글자 표시로 가져온다 (자막 시각은 원본 영상 기준) */
+  const importSubtitles = async (): Promise<void> => {
+    const c = selectedMain();
+    if (!c) {
+      notify('error', '자막을 넣을 클립을 고르세요');
+      return;
+    }
+    const sub = await libraryApi.editReadSubtitle();
+    if (!sub) return;
+    const cues = parseSubtitles(sub.text, sub.format);
+    const texts = cuesToTexts(
+      cues,
+      { inSec: c.inSec, speed: c.speed, durationSec: clipDur(c) },
+      () => crypto.randomUUID(),
+    );
+    if (texts.length === 0) {
+      notify('error', '이 클립 구간에 들어오는 자막이 없습니다 (자막 시각은 원본 영상 기준입니다)');
+      return;
+    }
+    updateClip(c.id, (cc) => ({ ...cc, texts: [...cc.texts, ...texts].slice(0, MAX_CLIP_TEXTS) }));
+    notify('info', `${sub.fileName}: 자막 ${String(texts.length)}개를 넣었습니다`);
+  };
+
+  /** 원본을 새 파일로 다시 연결 (실행 취소 한 단계로 남는다) */
+  const relinkMissing = async (m: MissingRef): Promise<void> => {
+    const cur = projRef.current;
+    if (!cur || !(await flushSave())) return;
+    const kind = m.role === 'music' ? 'audio' : m.role === 'watermark' ? 'image' : 'video';
+    const picked = await libraryApi.editPickMedia(kind);
+    const newPath = picked?.paths[0];
+    if (!newPath) return;
+    const res = await libraryApi.editRelink(cur.id, m.path, newPath);
+    if (!res) return;
+    commit(res.project, true, null);
+    for (const w of res.warnings) notify('info', w);
+    const list = await libraryApi.editMissing(cur.id);
+    setMissingState({ projectId: cur.id, list });
   };
 
   /** 무손실 합치기 확인 (저장되지 않은 변경을 먼저 저장한다) */
@@ -1035,6 +1087,22 @@ export function VideoEditorPage(): ReactNode {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // 프로젝트를 열 때 디스크에 없는 원본을 확인한다
+  const openedId = project?.id ?? null;
+  useEffect(() => {
+    if (openedId === null) return;
+    let alive = true;
+    void libraryApi.editMissing(openedId).then((list) => {
+      if (alive) setMissingState({ projectId: openedId, list });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [openedId]);
+  const missing = missingState && missingState.projectId === openedId ? missingState.list : [];
+  const roleLabel = (r: MissingRef['role']): string =>
+    r === 'clip' ? '클립' : r === 'track' ? '트랙 클립' : r === 'music' ? '배경 음악' : '워터마크';
+
   if (!project) {
     return (
       <div className="flex h-full flex-col gap-3 p-4 text-sm">
@@ -1087,6 +1155,24 @@ export function VideoEditorPage(): ReactNode {
     <div className="flex h-full min-h-0 flex-col text-sm">
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} entries={menu.entries} />
+      )}
+      {missing.length > 0 && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 border-b border-[var(--c-danger)] px-3 py-2 text-xs"
+        >
+          <span className="font-semibold text-[var(--c-danger)]">
+            원본 파일을 찾을 수 없습니다 ({String(missing.length)}개)
+          </span>
+          {missing.map((m) => (
+            <span key={`${m.role}|${m.path}`} className="flex items-center gap-1">
+              <span>
+                {m.fileName} ({roleLabel(m.role)})
+              </span>
+              <Button onClick={() => void relinkMissing(m)}>다시 찾기</Button>
+            </span>
+          ))}
+        </div>
       )}
       {/* 상단 바 */}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
@@ -1143,6 +1229,13 @@ export function VideoEditorPage(): ReactNode {
             disabled={rendering || clips.length === 0}
           >
             다른 이름으로…
+          </Button>
+          <Button
+            onClick={() => void startRender('export', false, range)}
+            disabled={rendering || clips.length === 0 || range === null}
+            aria-label="선택 구간만 내보내기"
+          >
+            구간만 내보내기
           </Button>
           <Button variant="danger" onClick={() => void removeProject()}>
             프로젝트 삭제
@@ -1617,6 +1710,7 @@ export function VideoEditorPage(): ReactNode {
                   onDuplicate={() => duplicateClip(current.id)}
                   onSplitEqual={(n) => splitEqual(current.id, n)}
                   onSplitInterval={(sec) => splitInterval(current.id, sec)}
+                  onImportSubtitles={() => void importSubtitles()}
                 />
                 <MotionPanel
                   key={`motion-${current.id}`}
@@ -1735,6 +1829,7 @@ function ClipPanel({
   onDuplicate,
   onSplitEqual,
   onSplitInterval,
+  onImportSubtitles,
 }: {
   clip: EditClip;
   index: number;
@@ -1746,6 +1841,7 @@ function ClipPanel({
   onDuplicate: () => void;
   onSplitEqual: (n: number) => void;
   onSplitInterval: (seconds: number) => void;
+  onImportSubtitles: () => void;
 }): ReactNode {
   const [interval, setInterval_] = useState(5);
   const [parts, setParts] = useState(2);
@@ -1831,6 +1927,14 @@ function ClipPanel({
         </Button>
       </div>
 
+      <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">자막</h4>
+      <div className="flex items-center gap-2 text-xs">
+        <Button onClick={onImportSubtitles}>자막 파일 가져오기 (SRT·VTT·ASS)</Button>
+      </div>
+      <p className="text-[10px] text-[var(--c-muted)]">
+        자막 시각은 원본 영상의 시각으로 봅니다. 글자 표시로 들어가며, 세부 모양은 텍스트 설정에서
+        바꿉니다.
+      </p>
       <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">이름·길이·페이드</h4>
       <label className="mt-1 flex items-center justify-between gap-2 text-xs">
         표시 이름
@@ -1874,6 +1978,15 @@ function ClipPanel({
         value={clip.fadeOutSec ?? 0}
         onChange={(v) => onChange({ fadeOutSec: v })}
       />
+      <label className="mt-2 flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          aria-label="인터레이스 제거"
+          checked={clip.deinterlace === true}
+          onChange={(e) => onChange({ deinterlace: e.target.checked })}
+        />
+        인터레이스 제거 (줄무늬 있는 방송·카메라 영상)
+      </label>
       <h4 className="mt-3 text-xs font-semibold text-[var(--c-muted)]">소리 정리</h4>
       <label className="mt-1 flex items-center justify-between gap-2 text-xs">
         잡음 줄이기

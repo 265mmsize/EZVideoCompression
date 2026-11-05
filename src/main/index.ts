@@ -184,6 +184,20 @@ function bootstrap(): void {
         : await dialog.showOpenDialog(options);
       return res.canceled ? null : (res.filePaths[0] ?? null);
     },
+    pickSubtitleFile: async () => {
+      const options: Electron.OpenDialogOptions = {
+        title: '가져올 자막 파일 선택',
+        properties: ['openFile'],
+        filters: [
+          { name: '자막 파일', extensions: ['srt', 'vtt', 'ass', 'ssa'] },
+          { name: '모든 파일', extensions: ['*'] },
+        ],
+      };
+      const res = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      return res.canceled ? null : (res.filePaths[0] ?? null);
+    },
     pickViewerFolder: async () => {
       const options: Electron.OpenDialogOptions = {
         title: '이미지 폴더 선택',

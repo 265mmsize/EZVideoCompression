@@ -22,6 +22,7 @@ import { loadSubtitlesFor } from '../services/library/LibrarySubtitles';
 export interface DialogPort {
   /** 뷰어: 이미지 또는 ZIP/CBZ 한 개 */
   pickViewerFile: () => Promise<string | null>;
+  pickSubtitleFile: () => Promise<string | null>;
   pickViewerFolder: () => Promise<string | null>;
   /** .kcp 프로젝트 파일 저장 위치 */
   saveKcp: (defaultName: string) => Promise<string | null>;
@@ -263,12 +264,19 @@ export function registerIpc(deps: IpcDeps): void {
     'edit:frame': ({ path, timeSec }) => s.videoEdit.frame(path, timeSec),
     'edit:mediaUrl': ({ path }) => s.videoEdit.mediaUrl(path),
     'edit:lossless.check': ({ projectId }) => s.videoEdit.losslessCheck(projectId),
+    'edit:missing': ({ projectId }) => s.videoEdit.missingSources(projectId),
+    'edit:subtitle.read': async () => {
+      const p = await dialogs.pickSubtitleFile();
+      return p ? s.videoEdit.readSubtitle(p) : null;
+    },
+    'edit:relink': ({ projectId, oldPath, newPath }) =>
+      s.videoEdit.relinkSource(projectId, oldPath, newPath),
     'edit:lossless.merge': ({ projectId, target }) => ({
       renderId: s.videoEdit.losslessMerge(projectId, target),
     }),
     'edit:waveform': ({ path }) => s.videoEdit.waveform(path),
-    'edit:render': ({ projectId, mode, target }) => ({
-      renderId: s.videoEdit.render(projectId, mode, target),
+    'edit:render': ({ projectId, mode, target, range }) => ({
+      renderId: s.videoEdit.render(projectId, mode, target, range ?? null),
     }),
     'edit:render.cancel': ({ renderId }) => ({ cancelled: s.videoEdit.cancel(renderId) }),
     'edit:pickExportPath': async ({ defaultName, ext }) => {

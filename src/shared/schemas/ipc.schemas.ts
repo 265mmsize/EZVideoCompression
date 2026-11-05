@@ -156,7 +156,7 @@ const editClipSchema = z.object({
   }),
   stabilize: z.boolean(),
   transition: z.object({ type: z.enum(TRANSITIONS), durationSec: z.number().min(0.1).max(5) }),
-  texts: z.array(editTextSchema).max(20),
+  texts: z.array(editTextSchema).max(500),
   motion: z
     .object({ zoom: keyframeList, panX: keyframeList, panY: keyframeList, volume: keyframeList })
     .optional(),
@@ -164,6 +164,7 @@ const editClipSchema = z.object({
   bitDepth: z.number().int().min(1).max(32).nullable().optional(),
   label: z.string().max(120).optional(),
   noiseReduce: z.enum(['off', 'light', 'strong']).optional(),
+  deinterlace: z.boolean().optional(),
   vocal: z.enum(['off', 'reduce', 'isolate']).optional(),
   audioChannels: z.number().int().min(0).max(64).nullable().optional(),
   fadeInSec: z.number().min(0).max(600).optional(),
@@ -426,12 +427,17 @@ export const invokeSchemas: Record<InvokeChannel, z.ZodType> = {
   'edit:frame': z.object({ path: absolutePath, timeSec: sec }),
   'edit:mediaUrl': z.object({ path: absolutePath }),
   'edit:lossless.check': z.object({ projectId: idSchema }),
+  'edit:missing': z.object({ projectId: idSchema }),
+  'edit:subtitle.read': voidSchema,
+  'edit:relink': z.object({ projectId: idSchema, oldPath: absolutePath, newPath: absolutePath }),
   'edit:lossless.merge': z.object({ projectId: idSchema, target: exportTargetSchema.nullable() }),
   'edit:waveform': z.object({ path: absolutePath }),
   'edit:render': z.object({
     projectId: idSchema,
     mode: z.enum(['proxy', 'export']),
     target: exportTargetSchema.nullable(),
+    /** 선택 구간만 내보내기 (프로젝트는 바뀌지 않는다) */
+    range: z.object({ startSec: sec, endSec: sec }).nullable().optional(),
   }),
   'edit:render.cancel': z.object({ renderId: idSchema }),
   'edit:pickExportPath': z.object({

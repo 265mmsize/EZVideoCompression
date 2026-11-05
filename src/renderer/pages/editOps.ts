@@ -2,38 +2,13 @@
  * 영상 편집기의 순수 계산 (화면과 메인 렌더 계획이 같은 규칙을 쓴다).
  */
 import { sliceMotion } from '../../shared/keyframes';
-import { clipDuration } from '../../shared/clipTime';
+import { layout, MIN_PIECE_SEC, transitionSec, clipDur } from '../../shared/timelineCut';
+export { layout, MIN_PIECE_SEC, transitionSec, clipDur };
 import type { EditClip } from '../../shared/types/domain';
 
-export const MIN_PIECE_SEC = 0.2;
 export const MAX_EQUAL_PARTS = 10;
 export const MAX_PIECES = 50;
 const MAX_INTERVAL_PIECES = 50;
-
-/** 클립의 결과 길이 (속도 적용 후) */
-export function clipDur(c: EditClip): number {
-  return clipDuration(c);
-}
-
-/** 다음 클립과 겹치는 전환 길이 (양쪽 길이의 절반 이하) */
-export function transitionSec(prev: EditClip, next: EditClip | undefined): number {
-  if (!next || prev.transition.type === 'none') return 0;
-  return Math.max(
-    0,
-    Math.min(prev.transition.durationSec, Math.min(clipDur(prev), clipDur(next)) * 0.5),
-  );
-}
-
-/** 각 클립의 타임라인 시작 시각과 전체 길이 */
-export function layout(clips: EditClip[]): { starts: number[]; total: number } {
-  const starts: number[] = [];
-  let t = 0;
-  clips.forEach((c, i) => {
-    starts.push(t);
-    t += clipDur(c) - transitionSec(c, clips[i + 1]);
-  });
-  return { starts, total: Math.max(0, t) };
-}
 
 /**
  * 클립을 주어진 지점(원본 기준 초, 시작과 끝 사이)에서 나눈다. 첫 조각은 원래 id 와 텍스트를 받고,

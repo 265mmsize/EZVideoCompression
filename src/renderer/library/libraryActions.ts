@@ -160,6 +160,11 @@ export const libraryApi = {
   editProbe: (path: string) => run('파일 확인', () => call('edit:source.probe', { path })),
   editPickMedia: (kind: 'video' | 'audio' | 'image') =>
     run('파일 선택', () => call('edit:pickMedia', { kind })),
+  editReadSubtitle: () => run('자막 파일 읽기', () => call('edit:subtitle.read')),
+  editMissing: async (projectId: string) =>
+    (await run('원본 확인', () => call('edit:missing', { projectId }))) ?? [],
+  editRelink: (projectId: string, oldPath: string, newPath: string) =>
+    run('원본 다시 연결', () => call('edit:relink', { projectId, oldPath, newPath })),
   editLosslessCheck: (projectId: string) =>
     run('무손실 합치기 확인', () => call('edit:lossless.check', { projectId })),
   editLosslessMerge: (projectId: string, target: ImageExportTarget | null) =>
@@ -187,8 +192,12 @@ export const libraryApi = {
       return null;
     }
   },
-  editRender: (projectId: string, mode: EditRenderMode, target: ImageExportTarget | null) =>
-    run('렌더 시작', () => call('edit:render', { projectId, mode, target })),
+  editRender: (
+    projectId: string,
+    mode: EditRenderMode,
+    target: ImageExportTarget | null,
+    range: { startSec: number; endSec: number } | null = null,
+  ) => run('렌더 시작', () => call('edit:render', { projectId, mode, target, range })),
   editRenderCancel: (renderId: string) =>
     run('렌더 취소', () => call('edit:render.cancel', { renderId })),
   editPickExportPath: (defaultName: string, ext: 'mp4' | 'mkv') =>

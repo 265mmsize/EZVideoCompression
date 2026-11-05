@@ -260,6 +260,21 @@ export interface InvokeContract {
   'edit:frame': { request: { path: string; timeSec: number }; response: { url: string } };
   /** 실시간 미리보기용 영상·음성 재생 주소 */
   'edit:mediaUrl': { request: { path: string }; response: { url: string } };
+  /** 자막 파일(SRT, WebVTT, ASS, SSA) 선택 후 글자 읽기 (2MB 이하, 읽기만 한다) */
+  'edit:subtitle.read': {
+    request: void;
+    response: { fileName: string; format: 'srt' | 'webvtt' | 'ass' | 'ssa'; text: string } | null;
+  };
+  /** 디스크에 없는 원본 참조 목록 */
+  'edit:missing': {
+    request: { projectId: string };
+    response: { role: 'clip' | 'track' | 'music' | 'watermark'; path: string; fileName: string }[];
+  };
+  /** 원본을 새 파일로 다시 연결 */
+  'edit:relink': {
+    request: { projectId: string; oldPath: string; newPath: string };
+    response: { project: EditProject; warnings: string[] };
+  };
   /** 무손실 합치기 가능 여부와 이유 */
   'edit:lossless.check': {
     request: { projectId: string };
@@ -277,7 +292,12 @@ export interface InvokeContract {
   };
   /** 렌더 시작. 진행은 edit:render.progress 이벤트 */
   'edit:render': {
-    request: { projectId: string; mode: EditRenderMode; target: ImageExportTarget | null };
+    request: {
+      projectId: string;
+      mode: EditRenderMode;
+      target: ImageExportTarget | null;
+      range?: { startSec: number; endSec: number } | null;
+    };
     response: { renderId: string };
   };
   'edit:render.cancel': { request: { renderId: string }; response: { cancelled: boolean } };
@@ -402,6 +422,9 @@ export const CHANNEL_NAMES = {
     'edit:frame',
     'edit:mediaUrl',
     'edit:lossless.check',
+    'edit:missing',
+    'edit:subtitle.read',
+    'edit:relink',
     'edit:lossless.merge',
     'edit:waveform',
     'edit:render',

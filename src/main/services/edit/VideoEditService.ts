@@ -8,6 +8,11 @@
  * - 미리보기 렌더(proxy)는 640px 저화질이며 "미리보기"로만 표시한다. 내보내기 결과가 아니다.
  */
 import { randomUUID } from 'node:crypto';
+import { displaySize } from '../../../shared/displayDims';
+import { decodeSubtitle, sniffEncoding } from '../ExternalSubtitleService';
+import { DISPLAY_SUBTITLE_MAX_BYTES, formatOfExtension } from '../library/LibrarySubtitles';
+import { keepOnly, keepOnlyTracks, type TimeRange } from '../../../shared/timelineCut';
+import { missingRefs, replaceSourcePath, type MissingRef } from '../../../shared/relink';
 import fs from 'node:fs';
 import path from 'node:path';
 import type {
@@ -125,6 +130,20 @@ export function newProject(name: string, at: string): EditProject {
   };
 }
 
+/** 구간 밖을 잘라낸 프로젝트 복사본 (저장하지 않는다) */
+export function keepRangeProject(
+  p: EditProject,
+  r: { startSec: number; endSec: number },
+): EditProject {
+  const range: TimeRange = { startSec: r.startSec, endSec: r.endSec };
+  const newId = (): string => randomUUID();
+  return {
+    ...p,
+    clips: keepOnly(p.clips, range, newId),
+    tracks: keepOnlyTracks(p.tracks, range, newId),
+  };
+}
+
 export class VideoEditService {
   private readonly running = new Map<string, AbortController>();
 
@@ -212,17 +231,72 @@ export class VideoEditService {
       fileName: p.fileName,
       kind,
       durationSec: p.durationSec.value,
-      width: v?.width ?? null,
-      height: v?.height ?? null,
+      // 화면에 보이는 방향의 크기 (휴대폰 회전 정보 반영)
+      width: displaySize(v?.width ?? null, v?.height ?? null, v?.rotation).width,
+      height: displaySize(v?.width ?? null, v?.height ?? null, v?.rotation).height,
       hasAudio: a !== null,
       hasVideo: v !== null,
       audioChannels: a?.channels ?? null,
+      interlaced: v?.fieldOrder === 'interlaced',
       hdr: isHdrTransfer(v?.colorTransfer),
       bitDepth: v?.bitDepth ?? null,
     };
   }
 
   /** 원본 파일의 시점 프레임 (효과 미적용). 썸네일 캐시를 쓴다 */
+  /** 자막 파일 읽기 (읽기 전용, 2MB 이하). 인코딩은 자동 판별한다. */
+  readSubtitle(filePath: string): {
+    fileName: string;
+    format: 'srt' | 'webvtt' | 'ass' | 'ssa';
+    text: string;
+  } {
+    const fileName = path.basename(filePath);
+    const format = formatOfExtension(fileName);
+    if (format === null)
+      throw new AppError(
+        'UNSUPPORTED_INPUT',
+        '자막 파일은 SRT, VTT, ASS, SSA 만 가져올 수 있습니다',
+      );
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(filePath);
+    } catch (err) {
+      throw new AppError('INPUT_MISSING', filePath, { cause: err });
+    }
+    if (!st.isFile() || st.size > DISPLAY_SUBTITLE_MAX_BYTES)
+      throw new AppError('UNSUPPORTED_INPUT', '자막 파일을 읽을 수 없거나 2MB 를 넘습니다');
+    const buf = fs.readFileSync(filePath);
+    return { fileName, format, text: decodeSubtitle(buf, sniffEncoding(buf)) };
+  }
+
+  /** 디스크에 없는 원본 참조 (역할별) */
+  missingSources(projectId: string): MissingRef[] {
+    return missingRefs(this.get(projectId), (p) => fs.existsSync(p));
+  }
+
+  /** 원본 파일을 새 파일로 다시 연결하고 저장한다 (같은 경로의 참조를 모두 바꾼다) */
+  async relinkSource(
+    projectId: string,
+    oldPath: string,
+    newPath: string,
+  ): Promise<{ project: EditProject; warnings: string[] }> {
+    const info = await this.probeSource(newPath);
+    const base = this.get(projectId);
+    const result = replaceSourcePath(base, oldPath, {
+      path: info.path,
+      fileName: info.fileName,
+      durationSec: info.durationSec,
+      width: info.width,
+      height: info.height,
+      hasAudio: info.hasAudio,
+      audioChannels: info.audioChannels,
+      hdr: info.hdr,
+      bitDepth: info.bitDepth,
+    });
+    const saved = this.save(result.project);
+    return { project: saved, warnings: result.warnings };
+  }
+
   /** 무손실 합치기 가능 여부. 안 되면 이유를 모두 돌려준다 */
   async losslessCheck(projectId: string): Promise<{ ok: boolean; reasons: string[] }> {
     const p = this.get(projectId);
@@ -464,8 +538,15 @@ export class VideoEditService {
 
   // ----- 렌더 -----
 
-  render(projectId: string, mode: EditRenderMode, target: ImageExportTarget | null): string {
-    const project = this.get(projectId);
+  render(
+    projectId: string,
+    mode: EditRenderMode,
+    target: ImageExportTarget | null,
+    range: { startSec: number; endSec: number } | null = null,
+  ): string {
+    // 구간만 내보내기: 구간 밖을 잘라낸 복사본으로 렌더한다 (저장된 프로젝트는 그대로)
+    const saved = this.get(projectId);
+    const project = range ? keepRangeProject(saved, range) : saved;
     if (project.clips.length === 0)
       throw new AppError('INVALID_REQUEST', '클립을 하나 이상 추가하세요');
     for (const c of project.clips) {

@@ -817,6 +817,8 @@ export interface EditClip {
   /** 시작·끝 페이드 (초, 영상과 소리 함께). 없으면 0 */
   fadeInSec?: number;
   fadeOutSec?: number;
+  /** 인터레이스 제거 (등록할 때 자동 감지. 끄면 그대로 쓴다) */
+  deinterlace?: boolean;
   /** 소리 정리: 잡음 줄이기 정도와 보컬 처리 (보컬은 스테레오 원본에서만 적용) */
   noiseReduce?: 'off' | 'light' | 'strong';
   vocal?: 'off' | 'reduce' | 'isolate';
@@ -977,6 +979,8 @@ export interface EditSourceInfo {
   hasVideo: boolean;
   /** 첫 음성 트랙의 채널 수 (없으면 null) */
   audioChannels: number | null;
+  /** 인터레이스(위·아래 필드가 섞인) 영상인지 */
+  interlaced: boolean;
   /** HDR 전송 특성(PQ·HLG) 영상인지 */
   hdr: boolean;
   /** 영상 비트 깊이 (모르면 null) */

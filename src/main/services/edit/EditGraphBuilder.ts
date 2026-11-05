@@ -205,6 +205,11 @@ export function buildRenderPlan(project: EditProject, opts: RenderPlanOptions): 
     inputs.push(['-ss', fix3(c.inSec), '-t', fix3(srcDur), '-i', c.path]);
 
     const v: string[] = [];
+    // 인터레이스 제거: 필드를 프레임으로 바꿔 줄무늬를 없앤다 (프레임 속도는 유지)
+    if (c.deinterlace) {
+      v.push('yadif=mode=send_frame:parity=auto:deint=interlaced');
+      notes.push(`${c.fileName}: 인터레이스 제거`);
+    }
     if (c.stabilize) {
       const trf = join(sep, opts.trfDir, `clip-${String(i)}.trf`);
       stabilizePasses.push({
